@@ -18,6 +18,3 @@ syn = { version = "1", features = ["extra-traits"] }
 
 [dev-dependencies]
 quote = "*"
-
-[patch.crates-io]
-syn = { version = "1", path = "../syn" }
