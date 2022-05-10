@@ -1,10 +1,10 @@
-# make-proc
+# proc-easy
 
-[![crates](https://img.shields.io/crates/v/make-proc.svg?style=for-the-badge&label=make-proc)](https://crates.io/crates/make-proc)
-[![docs](https://img.shields.io/badge/docs.rs-make--proc-66c2a5?style=for-the-badge&labelColor=555555&logoColor=white)](https://docs.rs/make-proc)
-[![actions](https://img.shields.io/github/workflow/status/zakarumych/make-proc/badge/master?style=for-the-badge)](https://github.com/zakarumych/make-proc/actions?query=workflow%3ARust)
+[![crates](https://img.shields.io/crates/v/proc-easy.svg?style=for-the-badge&label=proc-easy)](https://crates.io/crates/proc-easy)
+[![docs](https://img.shields.io/badge/docs.rs-proc--easy-66c2a5?style=for-the-badge&labelColor=555555&logoColor=white)](https://docs.rs/proc-easy)
+[![actions](https://img.shields.io/github/workflow/status/zakarumych/proc-easy/badge/master?style=for-the-badge)](https://github.com/zakarumych/proc-easy/actions?query=workflow%3ARust)
 [![MIT/Apache](https://img.shields.io/badge/license-MIT%2FApache-blue.svg?style=for-the-badge)](COPYING)
-![loc](https://img.shields.io/tokei/lines/github/zakarumych/make-proc?style=for-the-badge)
+![loc](https://img.shields.io/tokei/lines/github/zakarumych/proc-easy?style=for-the-badge)
 
 Macros to make writing proc-macro crates easy
 

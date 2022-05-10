@@ -1,12 +1,12 @@
 [package]
-name = "easy-proc"
+name = "proc-easy"
 version = "0.0.0"
 edition = "2021"
 authors = ["Zakarum <zakarumych@ya.ru>"]
 license = "MIT OR Apache-2.0"
-documentation = "https://docs.rs/make-proc"
-homepage = "https://github.com/zakarumych/make-proc"
-repository = "https://github.com/zakarumych/make-proc"
+documentation = "https://docs.rs/proc-easy"
+homepage = "https://github.com/zakarumych/proc-easy"
+repository = "https://github.com/zakarumych/proc-easy"
 readme = "README.md"
 description = "Macros to make writing proc-macro crates easy"
 keywords = ["proc-macro", "macro", "derive"]
