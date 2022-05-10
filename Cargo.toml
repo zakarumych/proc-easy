@@ -1,0 +1,23 @@
+[package]
+name = "easy-proc"
+version = "0.0.0"
+edition = "2021"
+authors = ["Zakarum <zakarumych@ya.ru>"]
+license = "MIT OR Apache-2.0"
+documentation = "https://docs.rs/make-proc"
+homepage = "https://github.com/zakarumych/make-proc"
+repository = "https://github.com/zakarumych/make-proc"
+readme = "README.md"
+description = "Macros to make writing proc-macro crates easy"
+keywords = ["proc-macro", "macro", "derive"]
+categories = ["rust-patterns"]
+
+[dependencies]
+proc-macro2 = { version = "1" }
+syn = { version = "1", features = ["extra-traits"] }
+
+[dev-dependencies]
+quote = "*"
+
+[patch.crates-io]
+syn = { version = "1", path = "../syn" }
