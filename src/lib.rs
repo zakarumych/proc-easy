@@ -204,103 +204,113 @@ where
 }
 
 /// Defines structure or enum and implements [`Parse`] for it
-/// Also implements [`EasyPeek`] for structs if first field is prefixed with `@`. That field's type must implement [`EasyPeek`] itself.
-/// Implements [`EasyPeek`] for all enums.
-/// First field in enum variant must implement [`EasyPeek`].
-/// Or if there's no fields in enum variant - it does not participate in parsing.
+///
+/// Implements [`EasyPeek`] for structs if first field is prefixed with `@`. That field's type must implement [`EasyPeek`] itself.
+///
+/// For enums, if variant is prefixed by `!` it becomes a default variant that is parsed if other variants peeking fails.
+/// Variants prefixed with `?` are skipped during parsing and picking.
+///
+/// For enums [`EasyPeek`] is implemented if enum does not have a default variant.
+/// First field in enum non-default variants must implement [`EasyPeek`].
+///
+/// Note that unit, empty tuple and struct-like variants may be present but must be marked as default or skipped.
 #[macro_export]
 macro_rules! easy_parse {
     (
         $(#[$meta:meta])*
+        $vis:vis struct $name:ident;
+    ) => {
+        $(#[$meta])*
+        $vis struct $name;
+
+        impl $crate::private::Parse for $name {
+            fn parse(_input: $crate::private::ParseStream) -> $crate::private::Result<Self> {
+                $crate::private::Result::Ok($name)
+            }
+        }
+    };
+    (
+        $(#[$meta:meta])*
+        $vis:vis struct $name:ident ()
+    ) => {
+        $(#[$meta])*
+        $vis struct $name ()
+
+        impl $crate::private::Parse for $name {
+            fn parse(_input: $crate::private::ParseStream) -> $crate::private::Result<Self> {
+                $crate::private::Result::Ok($name ())
+            }
+        }
+    };
+    (
+        $(#[$meta:meta])*
+        $vis:vis struct $name:ident {}
+    ) => {
+        $(#[$meta])*
+        $vis struct $name {}
+
+        impl $crate::private::Parse for $name {
+            fn parse(_input: $crate::private::ParseStream) -> $crate::private::Result<Self> {
+                $crate::private::Result::Ok($name {})
+            }
+        }
+    };
+    (
+        $(#[$meta:meta])*
         $vis:vis struct $name:ident {
-            $(@ $pvis:vis $pname:ident: $ptype:ty,)?
-            $($fvis:vis $fname:ident: $ftype:ty),*
+            $(#[$hmeta:meta])* $hvis:vis $hname:ident : $htype:ty
+            $(, $(#[$fmeta:meta])* $fvis:vis $fname:ident : $ftype:ty)*
             $(,)?
         }
     ) => {
         $(#[$meta])*
         $vis struct $name {
-            $($pvis $pname: $ptype,)?
-            $($fvis $fname: $ftype,)*
+            $(#[$hmeta])* $hvis $hname: $htype,
+            $($(#[$fmeta])* $fvis $fname: $ftype,)*
         }
 
         impl $crate::private::Parse for $name {
             fn parse(input: $crate::private::ParseStream) -> $crate::private::Result<Self> {
                 #![allow(unused_variables)]
 
-                $( let $pname =  <$ptype as $crate::private::Parse>::parse(input)?; )?
-                $( let $fname = <$ftype as $crate::private::Parse>::parse(input)?; )*
+                let $hname = <$htype as $crate::private::Parse>::parse(input)?;
+
+                $(
+                    let $fname = <$ftype as $crate::private::Parse>::parse(input)?;
+                )*
 
                 $crate::private::Result::Ok($name {
-                    $( $pname, )?
+                    $hname,
                     $( $fname, )*
                 })
             }
         }
 
-        $(
-            impl $crate::EasyPeek for $name {
-                #[inline]
-                fn peek(lookahead1: &$crate::private::Lookahead1) -> $crate::private::bool {
-                    <$ptype as $crate::EasyPeek>::peek(lookahead1)
-                }
-
-                #[inline]
-                fn peek_stream(stream: $crate::private::ParseStream) -> $crate::private::bool {
-                    <$ptype as $crate::EasyPeek>::peek_stream(stream)
-                }
+        impl $crate::EasyPeek for $name
+        where
+            $htype: $crate::EasyPeek,
+        {
+            #[inline]
+            fn peek(lookahead1: &$crate::private::Lookahead1) -> $crate::private::bool {
+                <$htype as $crate::EasyPeek>::peek(lookahead1)
             }
-        )?
-    };
-    (
-        $(#[$meta:meta])*
-        $vis:vis struct $name:ident (
-            $(@ $pvis:vis $ptype:ty,)?
-            $($fvis:vis $ftype:ty),*
-            $(,)?
-        )
-    ) => {
-        $(#[$meta])*
-        $vis struct $name (
-            $($pvis $ptype,)?
-            $($fvis $ftype,)*
-        )
-
-        impl $crate::private::Parse for $name {
-            fn parse(input: $crate::private::ParseStream) -> $crate::private::Result<Self> {
-                #![allow(unused_variables)]
-                Ok($name (
-                    $( <$ptype as $crate::private::Parse>::parse(input)?, )?
-                    $( <$ftype as $crate::private::Parse>::parse(input)?, )*
-                ))
+            #[inline]
+            fn peek_stream(stream: $crate::private::ParseStream) -> $crate::private::bool {
+                <$htype as $crate::EasyPeek>::peek_stream(stream)
             }
         }
-
-        $(
-            impl $crate::EasyPeek for $name {
-                #[inline]
-                fn peek(lookahead1: &$crate::private::Lookahead1) -> $crate::private::bool {
-                    <$ptype as $crate::EasyPeek>::peek(lookahead1)
-                }
-
-                #[inline]
-                fn peek_stream(stream: $crate::private::ParseStream) -> $crate::private::bool {
-                    <$ptype as $crate::EasyPeek>::peek_stream(stream)
-                }
-            }
-        )?
     };
-
     (
         $(#[$meta:meta])*
         $vis:vis enum $name:ident {
-            $( $vname:ident $( ( $($vt:tt)* ))? $( { $($vr:tt)* })? ),*
-            $(,)?
+            $(#[$vdmeta:meta])* ! $vdname:ident $( ( $($vdt:tt)* ) )? $( { $($vdr:tt)* } )?,
+            $($(#[$vmeta:meta])* $( ? $vsname:ident )? $( $vname:ident )? $( ( $($vt:tt)* ) )? $( { $($vr:tt)* } )?, )*
         }
     ) => {
         $(#[$meta])*
         $vis enum $name {
-            $( $vname $( ( $($vt)* ) )? $( { $($vr)* } )?, )*
+            $(#[$vdmeta])* $vdname $( ( $($vdt)* ) )? $( { $($vdr)* } )?,
+            $( $(#[$vmeta])* $( $vsname )? $( $vname )? $( ( $($vt)* ) )? $( { $($vr)* } )?, )*
         }
 
         impl $crate::private::Parse for $name {
@@ -309,7 +319,32 @@ macro_rules! easy_parse {
                 #![allow(unused_variables)]
                 let lookahead1 = input.lookahead1();
                 $(
-                    $crate::easy_parse_enum_variant!(parse lookahead1 input $name $vname $( ( $($vt)* ) )? $( { $($vr)* } )?);
+                    $crate::easy_parse_enum_variant!{parse lookahead1 input $name $( $vname )? $( ( $($vt)* ) )? $( { $($vr)* } )?}
+                )*
+
+                $crate::easy_parse_enum_variant!{parse_default input $name $vdname $( ( $($vdt)* ) )? $( { $($vdr)* } )?}
+            }
+        }
+    };
+    (
+        $(#[$meta:meta])*
+        $vis:vis enum $name:ident {
+            $($(#[$vmeta:meta])* $( ? $vsname:ident )? $( $vname:ident )? $( ( $($vt:tt)* ) )? $( { $($vr:tt)* } )?, )*
+        }
+    ) => {
+        $(#[$meta])*
+        $vis enum $name {
+            $( $(#[$vmeta])* $( $vsname )? $( $vname )? $( ( $($vt)* ) )? $( { $($vr)* } )? ),*
+        }
+
+        impl $crate::private::Parse for $name {
+            #[inline]
+            fn parse(input: $crate::private::ParseStream) -> $crate::private::Result<Self> {
+                #![allow(unused_variables)]
+                let lookahead1 = input.lookahead1();
+
+                $(
+                    $crate::easy_parse_enum_variant!{parse lookahead1 input $name $( $vname )? $( ( $($vt)* ) )? $( { $($vr)* } )?}
                 )*
 
                 $crate::private::Result::Err(lookahead1.error())
@@ -319,45 +354,29 @@ macro_rules! easy_parse {
         impl $crate::EasyPeek for $name {
             #[inline]
             fn peek(lookahead1: &$crate::private::Lookahead1) -> $crate::private::bool {
-                $( $crate::easy_parse_enum_variant!(peek lookahead1 $( ( $($vt)* ) )? $( { $($vr)* } )?) || )* false
+                $(
+                    $crate::easy_parse_enum_variant!{peek lookahead1 $($vname)? $( ( $($vt)* ) )? $( { $($vr)* } )?}
+                )*
+                false
             }
 
             #[inline]
             fn peek_stream(stream: $crate::private::ParseStream) -> $crate::private::bool {
-                $( $crate::easy_parse_enum_variant!(peek_stream stream $( ( $($vt)* ) )? $( { $($vr)* } )?) || )* false
+                $(
+                    $crate::easy_parse_enum_variant!{peek_stream stream $($vname)? $( ( $($vt)* ) )? $( { $($vr)* } )?}
+                )*
+                false
             }
         }
-    }
+    };
 }
 
+/// Non-public macro used by [`easy_parse!`].
 #[doc(hidden)]
 #[macro_export]
 macro_rules! easy_parse_enum_variant {
-    (parse  $lookahead1:ident $stream:ident $name:ident $vname:ident) => {};
-    (peek $lookahead1:ident) => {
-        false
-    };
-    (peek_stream $stream:ident) => {
-        false
-    };
-
-    (parse  $lookahead1:ident $stream:ident $name:ident $vname:ident ()) => {};
-    (peek $lookahead1:ident ()) => {
-        false
-    };
-    (peek_stream $stream:ident ()) => {
-        false
-    };
-
-    (parse  $lookahead1:ident $stream:ident $name:ident $vname:ident {}) => {};
-    (peek $lookahead1:ident {}) => {
-        false
-    };
-    (peek_stream $stream:ident {}) => {
-        false
-    };
-
-    (parse  $lookahead1:ident $stream:ident $name:ident $vname:ident ( $vptype:ty $(, $vftype:ty )* $(,)? )) => {
+    // (parse $lookahead1:ident $stream:ident $name:ident ( $(#[$vpmeta:meta])* $vptype:ty $(, $(#[$vfmeta:meta])* $vftype:ty )* $(,)? )) => {};
+    (parse $lookahead1:ident $stream:ident $name:ident $vname:ident ( $(#[$vpmeta:meta])* $vptype:ty $(, $(#[$vfmeta:meta])* $vftype:ty )* $(,)? )) => {
         if <$vptype as $crate::EasyPeek>::peek(&$lookahead1) {
             return $crate::private::Result::Ok($name::$vname(
                 <$vptype as $crate::private::Parse>::parse($stream)?,
@@ -365,17 +384,25 @@ macro_rules! easy_parse_enum_variant {
             ));
         }
     };
-    (peek $lookahead1:ident ( $vptype:ty $(, $vftype:ty )* $(,)? )) => {
-        <$vptype as $crate::EasyPeek>::peek($lookahead1)
-    };
-    (peek_stream $stream:ident ( $vptype:ty $(, $vftype:ty )* $(,)? )) => {
-        <$vptype as $crate::EasyPeek>::peek_stream($stream)
+    // (peek $lookahead1:ident ( $(#[$vpmeta:meta])* $vptype:ty $(, $(#[$vfmeta:meta])* $vftype:ty )* $(,)? )) => {};
+    (peek $lookahead1:ident $vname:ident ( $(#[$vpmeta:meta])* $vptype:ty $(, $(#[$vfmeta:meta])* $vftype:ty )* $(,)? )) => {
+        if <$vptype as $crate::EasyPeek>::peek($lookahead1) {
+            return true;
+        }
     };
 
-    (parse  $lookahead1:ident $stream:ident $name:ident $vname:ident { $vpname:ident : $vptype:ty $(, $vfname:ident : $vftype:ty )* $(,)? }) => {
+    // (peek_stream $stream:ident ( $(#[$vpmeta:meta])* $vptype:ty $(, $(#[$vfmeta:meta])* $vftype:ty )* $(,)? )) => {};
+    (peek_stream $stream:ident $vname:ident ( $(#[$vpmeta:meta])* $vptype:ty $(, $(#[$vfmeta:meta])* $vftype:ty )* $(,)? )) => {
+        if <$vptype as $crate::EasyPeek>::peek_stream($stream) {
+            return true;
+        }
+    };
+
+    // (parse $lookahead1:ident $stream:ident $name:ident { $(#[$vpmeta:meta])* $vpname:ident : $vptype:ty $(, $(#[$vfmeta:meta])* $vfname:ident : $vftype:ty )* $(,)? }) => {};
+    (parse $lookahead1:ident $stream:ident $name:ident $vname:ident { $(#[$vpmeta:meta])* $vpname:ident : $vptype:ty $(, $(#[$vfmeta:meta])* $vfname:ident : $vftype:ty )* $(,)? }) => {
         if <$vptype as $crate::EasyPeek>::peek(&$lookahead1) {
-            let $vpname =  <$vptype as $crate::private::Parse>::parse(input)?;
-            $( let $vfname = <$vftype as $crate::private::Parse>::parse(input)?; )*
+            let $vpname =  <$vptype as $crate::private::Parse>::parse($stream)?;
+            $( let $vfname = <$vftype as $crate::private::Parse>::parse($stream)?; )*
 
             return $crate::private::Result::Ok($name :: $vname {
                 $vpname,
@@ -383,11 +410,27 @@ macro_rules! easy_parse_enum_variant {
             })
         }
     };
-    (peek $lookahead1:ident { $vpname:ident : $vptype:ty $(, $vfname:ident : $vftype:ty )* $(,)? }) => {
-        <$vptype as $crate::EasyPeek>::peek($lookahead1)
+    // (peek $lookahead1:ident { $(#[$vpmeta:meta])* $vpname:ident : $vptype:ty $(, $(#[$vfmeta:meta])* $vfname:ident : $vftype:ty )* $(,)? }) => {};
+    (peek $lookahead1:ident $vname:ident { $(#[$vpmeta:meta])* $vpname:ident : $vptype:ty $(, $(#[$vfmeta:meta])* $vfname:ident : $vftype:ty )* $(,)? }) => {
+        if <$vptype as $crate::EasyPeek>::peek($lookahead1) {
+            return true;
+        }
     };
-    (peek_stream $stream:ident { $vpname:ident : $vptype:ty $(, $vfname:ident : $vftype:ty )* $(,)? }) => {
-        <$vptype as $crate::EasyPeek>::peek_stream($stream)
+    // (peek_stream $stream:ident { $(#[$vpmeta:meta])* $vpname:ident : $vptype:ty $(, $(#[$vfmeta:meta])* $vfname:ident : $vftype:ty )* $(,)? }) => {};
+    (peek_stream $stream:ident $vname:ident { $(#[$vpmeta:meta])* $vpname:ident : $vptype:ty $(, $(#[$vfmeta:meta])* $vfname:ident : $vftype:ty )* $(,)? }) => {
+        if <$vptype as $crate::EasyPeek>::peek_stream($stream) {
+            return true;
+        }
+    };
+
+    (parse_default $stream:ident $name:ident $vname:ident) => {
+        $crate::private::Result::Ok( $name::$vname )
+    };
+    (parse_default $stream:ident $name:ident $vname:ident ( $( $(#[$vfmeta:meta])* $vftype:ty ),* $(,)? )) => {
+        $crate::private::Result::Ok( $name::$vname ( $( <$vftype as $crate::private::Parse>::parse($stream)?, )* ))
+    };
+    (parse_default $stream:ident $name:ident $vname:ident { $( $(#[$vfmeta:meta])* $vfname:ident : $vftype:ty),* $(,)? }) => {
+        $crate::private::Result::Ok( $name::$vname { $( $vfname: <$vftype as $crate::private::Parse>::parse($stream)?, )* })
     };
 }
 
@@ -423,26 +466,26 @@ macro_rules! easy_attribute {
     (
         $(#[$meta:meta])*
         $vis:vis struct $name:ident {
-            @ $nvis:vis $namename:ident: $kw:ty
-            $(, $fvis:vis $fname:ident: $ftype:ty)*
+            $(#[$nmeta:meta])* $nvis:vis $nname:ident: $ntype:ty
+            $(, $(#[$fmeta:meta])* $fvis:vis $fname:ident: $ftype:ty)*
             $(,)?
         }
     ) => {
         $crate::easy_parse!{
             $(#[$meta])*
             $vis struct $name {
-                @ $nvis $namename: $kw,
-                $($fvis $fname: $ftype,)*
+                $(#[$nmeta])* $nvis $nname: $ntype,
+                $($(#[$fmeta])* $fvis $fname: $ftype,)*
             }
         }
 
         impl $crate::EasyAttribute for $name {
             fn name_display() -> &'static str {
-                <$kw as $crate::EasyToken>::display()
+                <$ntype as $crate::EasyToken>::display()
             }
 
             fn name_span(&self) -> $crate::private::Span {
-                <$kw as $crate::private::Spanned>::span(&self.$namename)
+                <$ntype as $crate::private::Spanned>::span(&self.$nname)
             }
         }
     };
@@ -450,26 +493,26 @@ macro_rules! easy_attribute {
     (
         $(#[$meta:meta])*
         $vis:vis struct $name:ident (
-            @ $nvis:vis $kw:ty
-            $(, $fvis:vis $ftype:ty)*
+            $(#[$nmeta:meta])* @ $nvis:vis $ntype:ty
+            $(, $(#[$fmeta:meta])* $fvis:vis $ftype:ty)*
             $(,)?
         )
     ) => {
         $crate::easy_parse!{
             $(#[$meta])*
             $vis struct $name (
-                @ $nvis $kw,
-                $($fvis $ftype,)*
+                $(#[$nmeta])* @ $nvis $ntype,
+                $( $(#[$fmeta])* $fvis $ftype,)*
             )
         }
 
         impl $crate::EasyAttribute for $name {
             fn name_display() -> &'static str {
-                <$kw as $crate::EasyToken>::display()
+                <$ntype as $crate::EasyToken>::display()
             }
 
             fn name_span(&self) -> $crate::private::Span {
-                <$kw as $crate::private::Spanned>::span(&self.0)
+                <$ntype as $crate::private::Spanned>::span(&self.0)
             }
         }
     };
@@ -525,14 +568,14 @@ macro_rules! easy_attribute_group {
     (
         $(#[$meta:meta])*
         $vis:vis enum $name:ident {
-            $( $vname:ident (  $vtype:ty ) ),*
+            $( $(#[$vmeta:meta])* $vname:ident ( $(#[$vtmeta:meta])* $vtype:ty ) ),*
             $(,)?
         }
     ) => {
         $crate::easy_parse! {
             $(#[$meta])*
             $vis enum $name {
-                $( $vname ($vtype), )*
+                $( $(#[$vmeta])* $vname ( $(#[$vtmeta])* $vtype ), )*
             }
         }
 
@@ -668,12 +711,14 @@ where
 /// They can be parsed inside attribute that accepts a list of flags if provided.
 #[macro_export]
 macro_rules! easy_flags {
-    ( $ovis:vis $onekw:ident as $one:ident $([$mvis:vis $manykw:ident as $many:ident])? { $($flag:ident $( = $value:literal)?),* $(,)? }) => {
+    ( $(#[$onemeta:meta])* $ovis:vis $onekw:ident as $one:ident $(| $(#[$manymeta:meta])* $mvis:vis $manykw:ident as $many:ident)? { $( $(#[$flagmeta:meta])* $flag:ident $( = $value:literal)?),* $(,)? }) => {
         $($crate::easy_token!($flag);)*
         $crate::easy_token!($onekw);
 
+        $(#[$onemeta])*
+        #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
         $ovis enum $one {
-            $( $flag($flag), )*
+            $( $(#[$flagmeta])* $flag($flag), )*
         }
 
         impl $one {
@@ -732,21 +777,13 @@ macro_rules! easy_flags {
         $(
             $crate::easy_token!($manykw);
 
+            $(#[$manymeta])*
+            #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
             #[allow(dead_code)]
             $mvis struct $many {
                 pub ones: $crate::private::Vec<$onekw>,
                 pub manies: $crate::private::Vec<$manykw>,
                 pub flags: $crate::private::Punctuated<$one, $crate::private::Comma>,
-            }
-
-            impl $crate::private::Default for $many {
-                fn default() -> Self {
-                    $many {
-                        ones: $crate::private::Vec::default(),
-                        manies: $crate::private::Vec::default(),
-                        flags: $crate::private::Punctuated::default(),
-                    }
-                }
             }
 
             impl $crate::EasyAttributeField for $many {
@@ -856,13 +893,13 @@ macro_rules! easy_attributes {
         @($namespace:ident)
         $(#[$meta:meta])*
         $vis:vis struct $name:ident {
-            $($fvis:vis $fname:ident : $ftype:ty),*
+            $( $(#[$fmeta:meta])* $fvis:vis $fname:ident : $ftype:ty),*
             $(,)?
         }
     ) => {
         $(#[$meta])*
         $vis struct $name {
-            $($fvis $fname : $ftype,)*
+            $( $(#[$fmeta])* $fvis $fname : $ftype,)*
         }
 
         impl $crate::EasyAttributes for $name {
@@ -906,6 +943,68 @@ macro_rules! easy_attributes {
     };
 }
 
+easy_parse! {
+    /// Expression that may be a constant or a reference to member field.
+    /// Often used pattern is having attribute that refer to a field or constant expression.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use {proc_easy::ReferenceExpr, syn::{parse_quote, Token}, quote::{quote, format_ident}};
+    /// /// Peeking first `const` token it decides to parse `Expr` variant.
+    /// let re: ReferenceExpr = parse_quote!(const 42);
+    /// assert_eq!(re, ReferenceExpr::Expr { const_: parse_quote!(const), expr: parse_quote!(42) });
+    /// ```
+    ///
+    /// ```
+    /// # use {proc_easy::ReferenceExpr, syn::parse_quote, quote::{quote, format_ident}};
+    /// /// Without `const` token it decides to parse `Member` variant.
+    /// let re: ReferenceExpr = parse_quote!(foo);
+    /// assert_eq!(re, ReferenceExpr::Member { ident: format_ident!("foo") });
+    /// ```
+    #[derive(Debug, PartialEq, Eq)]
+    pub enum ReferenceExpr {
+        /// Member ident.
+        Member {
+            ///
+            ident: syn::Ident,
+        },
+        /// Constant expression
+        Expr {
+            /// Const token.
+            const_: syn::Token![const],
+
+            ///
+            expr: syn::Expr,
+        },
+    }
+}
+
+#[cfg(any(test, doc))]
+#[allow(missing_docs)]
+pub mod examples {
+    easy_flags! {
+        /// Nya flags documentation
+        pub nya as Nya |
+        /// Nya flags set documentation
+        nyas as Nyas {
+            /// Puk documentation
+            Puk,
+            /// Pak documentation
+            Pak,
+        }
+    }
+
+    easy_parse! {
+        /// Foo
+        #[derive(Debug)]
+        pub struct Foo {
+            /// Foo
+            pub foo: syn::Ident,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::{EasyAttributes, Parenthesized};
@@ -938,8 +1037,13 @@ mod tests {
     enum bool {}
 
     easy_flags! {
-        pub nya as Nya [nyas as Nyas] {
+        /// Docs
+        pub nya as Nya |
+        /// Docs
+        nyas as Nyas {
+            /// Docs
             Puk,
+            /// Docs
             Pak,
         }
     }
@@ -949,57 +1053,88 @@ mod tests {
     easy_token!(baz);
 
     easy_parse! {
+        /// Docs
         #[derive(Clone, Debug)]
         pub struct FooInner {
+            /// Docs
             pub ident: syn::Ident
         }
     }
 
     easy_parse! {
+        /// Docs
         #[derive(Clone, Debug)]
         pub struct FooInner2 {
-            @ pub eq: syn::Token![=],
+            /// Docs
+            pub eq: syn::Token![=],
+            /// Docs
             pub ident: syn::Ident
         }
     }
 
     easy_parse! {
+        /// Docs
         #[derive(Clone, Debug)]
         pub enum FooVariant {
-            Inner(Parenthesized<FooInner>, syn::Token![!]),
-            Inner2(FooInner2),
+            /// Docs
+            Inner(
+                /// Docs
+                Parenthesized<FooInner>, syn::Token![!]
+            ),
+            Inner2(
+                /// Docs
+                FooInner2
+            ),
         }
     }
 
     easy_attribute! {
+        /// Docs
         #[derive(Clone, Debug)]
         pub struct Foo {
-            @pub name: foo,
+            /// Docs
+            pub name: foo,
+            /// Docs
             pub inner: FooVariant,
         }
     }
 
     easy_attribute! {
+        /// Docs
         #[derive(Clone, Debug)]
         pub struct Bar {
-            @pub name: bar,
+            /// Docs
+            pub name: bar,
+            /// Docs
             pub ident: syn::Ident,
         }
     }
 
     easy_attribute_group! {
+        /// Docs
         #[derive(Clone, Debug)]
         pub enum Group {
-            Foo(Foo),
-            Bar(Bar),
+            /// Docs
+            Foo(
+                /// Docs
+                Foo
+            ),
+            /// Docs
+            Bar(
+                /// Docs
+                Bar
+            ),
         }
     }
 
     easy_attributes! {
         @(easy)
+        /// Docs
         #[derive(Clone, Default)]
         pub struct Attributes {
+            /// Docs
             pub foo: std::option::Option<Foo>,
+            /// Docs
             pub bar: std::option::Option<Bar>,
         }
     }
