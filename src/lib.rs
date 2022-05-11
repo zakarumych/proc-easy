@@ -8,19 +8,21 @@
 #![deny(missing_copy_implementations)]
 #![deny(missing_debug_implementations)]
 
-use std::ops::Deref;
+use std::{marker::PhantomData, ops::Deref};
 
 use proc_macro2::Span;
+
 use syn::{
     parse::{Lookahead1, Parse, ParseStream},
     spanned::Spanned,
-    token::Token,
+    token::{Paren, Token},
 };
 
 #[doc(hidden)]
 pub mod private {
     pub use std::{
-        concat, default::Default, format, mem::discriminant, option::Option, stringify, vec::Vec,
+        concat, default::Default, format, mem::discriminant, option::Option, result::Result,
+        string::String, stringify, vec::Vec,
     };
 
     pub use bool;
@@ -30,8 +32,22 @@ pub mod private {
         parse::{Lookahead1, Parse, ParseStream},
         punctuated::Punctuated,
         spanned::Spanned,
-        token::Comma,
-        Attribute, Error, Result,
+        token::{Comma, Eq, Paren},
+        Attribute, Error,
+    };
+}
+
+#[doc(hidden)]
+#[macro_export]
+macro_rules! easy_void_tokens {
+    ($($t:tt)*) => {};
+}
+
+#[doc(hidden)]
+#[macro_export]
+macro_rules! easy_replace_tokens {
+    ($with:tt, $($t:tt)*) => {
+        $with
     };
 }
 
@@ -83,12 +99,35 @@ where
     }
 }
 
+#[doc(hidden)]
+#[allow(missing_debug_implementations)]
+pub struct EasyPeekHack<'a, T>(&'a PhantomData<T>);
+
+impl<'a, T> Parse for EasyPeekHack<'a, T> {
+    fn parse(_: ParseStream) -> syn::Result<Self> {
+        panic!("This function must not be called");
+    }
+}
+
+impl<'a, T> EasyPeek for EasyPeekHack<'a, T>
+where
+    T: EasyPeek,
+{
+    fn peek(lookahead1: &Lookahead1) -> bool {
+        T::peek(lookahead1)
+    }
+
+    fn peek_stream(stream: ParseStream) -> bool {
+        T::peek_stream(stream)
+    }
+}
+
 /// Parses inner type parenthesized.
 /// Implements [`EasyPeek`] and peeks opening parenthesis.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct Parenthesized<T>(pub T);
+pub struct EasyParenthesized<T>(pub T);
 
-impl<T> Deref for Parenthesized<T> {
+impl<T> Deref for EasyParenthesized<T> {
     type Target = T;
 
     fn deref(&self) -> &T {
@@ -96,7 +135,16 @@ impl<T> Deref for Parenthesized<T> {
     }
 }
 
-impl<T> EasyPeek for Parenthesized<T>
+impl<T> Spanned for EasyParenthesized<T>
+where
+    T: Spanned,
+{
+    fn span(&self) -> Span {
+        self.0.span()
+    }
+}
+
+impl<T> EasyPeek for EasyParenthesized<T>
 where
     T: Parse,
 {
@@ -111,7 +159,7 @@ where
     }
 }
 
-impl<T> Parse for Parenthesized<T>
+impl<T> Parse for EasyParenthesized<T>
 where
     T: Parse,
 {
@@ -119,16 +167,16 @@ where
     fn parse(input: ParseStream) -> syn::Result<Self> {
         let inner;
         syn::parenthesized!(inner in input);
-        T::parse(&inner).map(Parenthesized)
+        T::parse(&inner).map(EasyParenthesized)
     }
 }
 
 /// Parses inner type braced.
 /// Implements [`EasyPeek`] and peeks opening brace.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct Braced<T>(pub T);
+pub struct EasyBraced<T>(pub T);
 
-impl<T> Deref for Braced<T> {
+impl<T> Deref for EasyBraced<T> {
     type Target = T;
 
     fn deref(&self) -> &T {
@@ -136,7 +184,16 @@ impl<T> Deref for Braced<T> {
     }
 }
 
-impl<T> EasyPeek for Braced<T>
+impl<T> Spanned for EasyBraced<T>
+where
+    T: Spanned,
+{
+    fn span(&self) -> Span {
+        self.0.span()
+    }
+}
+
+impl<T> EasyPeek for EasyBraced<T>
 where
     T: Parse,
 {
@@ -151,7 +208,7 @@ where
     }
 }
 
-impl<T> Parse for Braced<T>
+impl<T> Parse for EasyBraced<T>
 where
     T: Parse,
 {
@@ -159,16 +216,16 @@ where
     fn parse(input: ParseStream) -> syn::Result<Self> {
         let inner;
         syn::braced!(inner in input);
-        T::parse(&inner).map(Braced)
+        T::parse(&inner).map(EasyBraced)
     }
 }
 
 /// Parses inner type bracketed.
 /// Implements [`EasyPeek`] and peeks opening bracket.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct Bracketed<T>(pub T);
+pub struct EasyBracketed<T>(pub T);
 
-impl<T> Deref for Bracketed<T> {
+impl<T> Deref for EasyBracketed<T> {
     type Target = T;
 
     fn deref(&self) -> &T {
@@ -176,7 +233,16 @@ impl<T> Deref for Bracketed<T> {
     }
 }
 
-impl<T> EasyPeek for Bracketed<T>
+impl<T> Spanned for EasyBracketed<T>
+where
+    T: Spanned,
+{
+    fn span(&self) -> Span {
+        self.0.span()
+    }
+}
+
+impl<T> EasyPeek for EasyBracketed<T>
 where
     T: Parse,
 {
@@ -191,7 +257,7 @@ where
     }
 }
 
-impl<T> Parse for Bracketed<T>
+impl<T> Parse for EasyBracketed<T>
 where
     T: Parse,
 {
@@ -199,7 +265,191 @@ where
     fn parse(input: ParseStream) -> syn::Result<Self> {
         let inner;
         syn::bracketed!(inner in input);
-        T::parse(&inner).map(Bracketed)
+        T::parse(&inner).map(EasyBracketed)
+    }
+}
+
+/// Similar to [`syn::punctuated::Punctuated`] that implements [`Parse`] and possibly [`EasyPeek`].
+/// Parses one or more occurrences of T separated by punctuation of type P, not accepting trailing punctuation.
+/// Parsing continues as long as punctuation P is present at the head of the stream. This method returns upon parsing a T and observing that it is not followed by a P, even if there are remaining tokens in the stream.
+#[derive(Clone, Debug)]
+pub struct EasySeparated<T, P = syn::Token![,]> {
+    items: Vec<T>,
+    punctuation: PhantomData<P>,
+}
+
+impl<T, P> Deref for EasySeparated<T, P> {
+    type Target = [T];
+
+    fn deref(&self) -> &[T] {
+        &self.items
+    }
+}
+
+impl<T, P> Parse for EasySeparated<T, P>
+where
+    T: Parse,
+    P: EasyPeek,
+{
+    fn parse(input: ParseStream) -> syn::Result<Self> {
+        let mut items = Vec::new();
+
+        let item = input.parse::<T>()?;
+        items.push(item);
+
+        while P::peek_stream(input) {
+            let _ = input.parse::<P>()?;
+            let item = input.parse::<T>()?;
+            items.push(item);
+        }
+
+        Ok(EasySeparated {
+            items,
+            punctuation: PhantomData,
+        })
+    }
+}
+
+impl<T, P> EasyPeek for EasySeparated<T, P>
+where
+    T: EasyPeek,
+    P: EasyPeek,
+{
+    fn peek(lookahead1: &Lookahead1) -> bool {
+        T::peek(lookahead1)
+    }
+
+    fn peek_stream(stream: ParseStream) -> bool {
+        T::peek_stream(stream)
+    }
+}
+
+/// Similar to [`syn::punctuated::Punctuated`] that implements [`Parse`].
+/// Parses zero or more occurrences of T separated by punctuation of type P, with optional trailing punctuation.
+/// Parsing continues until the end of this parse stream. The entire content of this parse stream must consist of T and P.
+#[derive(Clone, Debug)]
+pub struct EasyTerminated<T, P = syn::Token![,]> {
+    items: Vec<T>,
+    punctuation: PhantomData<P>,
+}
+
+impl<T, P> Deref for EasyTerminated<T, P> {
+    type Target = [T];
+
+    fn deref(&self) -> &[T] {
+        &self.items
+    }
+}
+
+impl<T, P> Parse for EasyTerminated<T, P>
+where
+    T: Parse,
+    P: EasyPeek,
+{
+    fn parse(input: ParseStream) -> syn::Result<Self> {
+        let mut items = Vec::new();
+
+        if input.is_empty() {
+            return Ok(EasyTerminated {
+                items,
+                punctuation: PhantomData,
+            });
+        }
+
+        let item = input.parse::<T>()?;
+        items.push(item);
+
+        loop {
+            if input.is_empty() {
+                break;
+            }
+            let _ = input.parse::<P>()?;
+            if input.is_empty() {
+                break;
+            }
+            let item = input.parse::<T>()?;
+            items.push(item);
+        }
+
+        Ok(EasyTerminated {
+            items,
+            punctuation: PhantomData,
+        })
+    }
+}
+
+/// Similar to [`Option`] but implements [`Parse`] when `T` implements [`EasyPeek`]
+/// If stream doesn't start with as `T`, it is parsed without consuming any tokens and parse result is [`Nothing`].
+/// Otherwise `T` is parsed and wrapped in [`Just`]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum EasyMaybe<T> {
+    /// Nothing at all
+    Nothing,
+
+    /// Just a value
+    Just(T),
+}
+
+impl<T> Default for EasyMaybe<T> {
+    fn default() -> Self {
+        EasyMaybe::Nothing
+    }
+}
+
+impl<T> Parse for EasyMaybe<T>
+where
+    T: EasyPeek,
+{
+    fn parse(input: ParseStream) -> syn::Result<Self> {
+        if T::peek_stream(input) {
+            T::parse(input).map(EasyMaybe::Just)
+        } else {
+            Ok(EasyMaybe::Nothing)
+        }
+    }
+}
+
+/// Either value preceded by `=` or tuple sub-fields.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum EasySubArgument<V, T> {
+    /// Simple value
+    Value(V),
+
+    /// Tuple sub-fields
+    Tuple(T),
+}
+
+impl<V, T> Parse for EasySubArgument<V, T>
+where
+    V: Parse,
+    T: Parse,
+{
+    fn parse(stream: ParseStream) -> syn::Result<Self> {
+        let lookahead1 = stream.lookahead1();
+        if lookahead1.peek(syn::Token![=]) {
+            stream.parse::<syn::Token![=]>()?;
+            Ok(EasySubArgument::Value(stream.parse::<V>()?))
+        } else if lookahead1.peek(Paren) {
+            let content;
+            syn::parenthesized!(content in stream);
+            Ok(EasySubArgument::Tuple(content.parse::<T>()?))
+        } else {
+            Err(lookahead1.error())
+        }
+    }
+}
+
+impl<V, T> EasyPeek for EasySubArgument<V, T>
+where
+    V: Parse,
+    T: Parse,
+{
+    fn peek(lookahead1: &Lookahead1) -> bool {
+        lookahead1.peek(syn::Token![=]) || lookahead1.peek(Paren)
+    }
+
+    fn peek_stream(stream: ParseStream) -> bool {
+        stream.peek(syn::Token![=]) || stream.peek(Paren)
     }
 }
 
@@ -224,20 +474,20 @@ macro_rules! easy_parse {
         $vis struct $name;
 
         impl $crate::private::Parse for $name {
-            fn parse(_input: $crate::private::ParseStream) -> $crate::private::Result<Self> {
+            fn parse(_input: $crate::private::ParseStream) -> $crate::private::Result<Self, $crate::private::Error> {
                 $crate::private::Result::Ok($name)
             }
         }
     };
     (
         $(#[$meta:meta])*
-        $vis:vis struct $name:ident ()
+        $vis:vis struct $name:ident ();
     ) => {
         $(#[$meta])*
-        $vis struct $name ()
+        $vis struct $name ();
 
         impl $crate::private::Parse for $name {
-            fn parse(_input: $crate::private::ParseStream) -> $crate::private::Result<Self> {
+            fn parse(_input: $crate::private::ParseStream) -> $crate::private::Result<Self, $crate::private::Error> {
                 $crate::private::Result::Ok($name ())
             }
         }
@@ -250,7 +500,7 @@ macro_rules! easy_parse {
         $vis struct $name {}
 
         impl $crate::private::Parse for $name {
-            fn parse(_input: $crate::private::ParseStream) -> $crate::private::Result<Self> {
+            fn parse(_input: $crate::private::ParseStream) -> $crate::private::Result<Self, $crate::private::Error> {
                 $crate::private::Result::Ok($name {})
             }
         }
@@ -270,7 +520,7 @@ macro_rules! easy_parse {
         }
 
         impl $crate::private::Parse for $name {
-            fn parse(input: $crate::private::ParseStream) -> $crate::private::Result<Self> {
+            fn parse(input: $crate::private::ParseStream) -> $crate::private::Result<Self, $crate::private::Error> {
                 #![allow(unused_variables)]
 
                 let $hname = <$htype as $crate::private::Parse>::parse(input)?;
@@ -288,15 +538,59 @@ macro_rules! easy_parse {
 
         impl $crate::EasyPeek for $name
         where
-            $htype: $crate::EasyPeek,
+            for<'a> $crate::EasyPeekHack<'a, $htype>: $crate::EasyPeek,
         {
             #[inline]
             fn peek(lookahead1: &$crate::private::Lookahead1) -> $crate::private::bool {
-                <$htype as $crate::EasyPeek>::peek(lookahead1)
+                <$crate::EasyPeekHack<'static, $htype> as $crate::EasyPeek>::peek(lookahead1)
             }
+
             #[inline]
             fn peek_stream(stream: $crate::private::ParseStream) -> $crate::private::bool {
-                <$htype as $crate::EasyPeek>::peek_stream(stream)
+                <$crate::EasyPeekHack<'static, $htype> as $crate::EasyPeek>::peek_stream(stream)
+            }
+        }
+    };
+
+    (
+        $(#[$meta:meta])*
+        $vis:vis struct $name:ident (
+            $(#[$hmeta:meta])* $hvis:vis $htype:ty
+            $(, $(#[$fmeta:meta])* $fvis:vis $ftype:ty)*
+            $(,)?
+        );
+    ) => {
+        $(#[$meta])*
+        $vis struct $name (
+            $(#[$hmeta])* $hvis $htype,
+            $($(#[$fmeta])* $fvis $ftype,)*
+        );
+
+        impl $crate::private::Parse for $name {
+            fn parse(input: $crate::private::ParseStream) -> $crate::private::Result<Self, $crate::private::Error> {
+                #![allow(unused_variables)]
+
+                $crate::private::Result::Ok($name (
+                    <$htype as $crate::private::Parse>::parse(input)?,
+                    $(
+                        <$ftype as $crate::private::Parse>::parse(input)?,
+                    )*
+                ))
+            }
+        }
+
+        impl $crate::EasyPeek for $name
+        where
+            for<'a> $crate::EasyPeekHack<'a, $htype>: $crate::EasyPeek,
+        {
+            #[inline]
+            fn peek(lookahead1: &$crate::private::Lookahead1) -> $crate::private::bool {
+                <$crate::EasyPeekHack<'static, $htype> as $crate::EasyPeek>::peek(lookahead1)
+            }
+
+            #[inline]
+            fn peek_stream(stream: $crate::private::ParseStream) -> $crate::private::bool {
+                <$crate::EasyPeekHack<'static, $htype> as $crate::EasyPeek>::peek_stream(stream)
             }
         }
     };
@@ -315,7 +609,7 @@ macro_rules! easy_parse {
 
         impl $crate::private::Parse for $name {
             #[inline]
-            fn parse(input: $crate::private::ParseStream) -> $crate::private::Result<Self> {
+            fn parse(input: $crate::private::ParseStream) -> $crate::private::Result<Self, $crate::private::Error> {
                 #![allow(unused_variables)]
                 let lookahead1 = input.lookahead1();
                 $(
@@ -339,7 +633,7 @@ macro_rules! easy_parse {
 
         impl $crate::private::Parse for $name {
             #[inline]
-            fn parse(input: $crate::private::ParseStream) -> $crate::private::Result<Self> {
+            fn parse(input: $crate::private::ParseStream) -> $crate::private::Result<Self, $crate::private::Error> {
                 #![allow(unused_variables)]
                 let lookahead1 = input.lookahead1();
 
@@ -436,7 +730,7 @@ macro_rules! easy_parse_enum_variant {
 
 /// Trait for parsable attributes.
 /// Attributes should be peekable to choose which attribute to parse.
-pub trait EasyAttribute: EasyPeek {
+pub trait EasyArgument: EasyPeek {
     /// Returns attribute name for display purposes.
     fn name_display() -> &'static str;
 
@@ -444,7 +738,7 @@ pub trait EasyAttribute: EasyPeek {
     fn name_span(&self) -> Span;
 }
 
-impl<T> EasyAttribute for T
+impl<T> EasyArgument for T
 where
     T: EasyToken,
 {
@@ -457,12 +751,13 @@ where
     }
 }
 
-/// Defines attribute structure.
-/// First field is a attribute name.
+/// Defines argument structure.
+/// First field is a argument name.
 /// It must be [`EasyToken`] implementation that will be used to for [`EasyPeek`] implementation.
-/// In case of errors, attribute name and span will be used.
+/// And following fields are parsed in order.
+/// In case of errors, argument name and span will be used.
 #[macro_export]
-macro_rules! easy_attribute {
+macro_rules! easy_argument {
     (
         $(#[$meta:meta])*
         $vis:vis struct $name:ident {
@@ -479,7 +774,187 @@ macro_rules! easy_attribute {
             }
         }
 
-        impl $crate::EasyAttribute for $name {
+        impl $crate::EasyArgument for $name {
+            fn name_display() -> &'static str {
+                <$ntype as $crate::EasyToken>::display()
+            }
+
+            fn name_span(&self) -> $crate::private::Span {
+                <$ntype as $crate::private::Spanned>::span(&self.$nname)
+            }
+        }
+    };
+    (
+        $(#[$meta:meta])*
+        $vis:vis struct $name:ident (
+            $(#[$nmeta:meta])* $nvis:vis $ntype:ty
+            $(, $(#[$fmeta:meta])* $fvis:vis $ftype:ty)*
+            $(,)?
+        );
+    ) => {
+        $crate::easy_parse!{
+            $(#[$meta])*
+            $vis struct $name (
+                $(#[$nmeta])* $nvis $ntype,
+                $( $(#[$fmeta])* $fvis $ftype,)*
+            );
+        }
+
+        impl $crate::EasyArgument for $name {
+            fn name_display() -> &'static str {
+                <$ntype as $crate::EasyToken>::display()
+            }
+
+            fn name_span(&self) -> $crate::private::Span {
+                <$ntype as $crate::private::Spanned>::span(&self.0)
+            }
+        }
+    };
+}
+
+/// Defines argument structure.
+/// First field is a argument name.
+/// It must be [`EasyToken`] implementation that will be used to for [`EasyPeek`] implementation.
+/// Following fields must be [`EasyArgumentField`] and are expected to be in parenthesized and parsed in any order.
+/// If name is not followed by parentheses, all fields are missing.
+/// In case of errors, argument name and span will be used.
+#[macro_export]
+macro_rules! easy_argument_tuple {
+    (
+        $(#[$meta:meta])*
+        $vis:vis struct $name:ident {
+            $(#[$nmeta:meta])* $nvis:vis $nname:ident: $ntype:ty
+            $(, $(#[$fmeta:meta])* $fvis:vis $fname:ident: $ftype:ty)*
+            $(,)?
+        }
+    ) => {
+        $(#[$meta])*
+        $vis struct $name {
+            $(#[$nmeta])* $nvis $nname: $ntype,
+            $($(#[$fmeta])* $fvis $fname: $ftype,)*
+        }
+
+        impl $crate::EasyPeek for $name {
+            fn peek(lookahead1: &$crate::private::Lookahead1) -> $crate::private::bool {
+                <$ntype as $crate::EasyPeek>::peek(lookahead1)
+            }
+            fn peek_stream(stream: $crate::private::ParseStream) -> $crate::private::bool {
+                <$ntype as $crate::EasyPeek>::peek_stream(stream)
+            }
+        }
+
+        impl $crate::private::Parse for $name {
+            fn parse(stream: $crate::private::ParseStream) -> $crate::private::Result<Self, $crate::private::Error> {
+                let $nname = stream.parse::<$ntype>()?;
+
+                $(let mut $fname = $crate::private::Option::None;)*
+
+                if stream.peek($crate::private::Paren) {
+                    let content;
+                    $crate::private::parenthesized!(content in stream);
+
+                    loop {
+                        if content.is_empty() {
+                            break;
+                        }
+                        let lookahead1 = content.lookahead1();
+                        $(
+                            match &mut $fname {
+                                $crate::private::Option::None => {
+                                    if let $crate::private::Option::Some(value) = <$ftype as $crate::EasyArgumentField>::try_parse(&lookahead1, &content)? {
+                                        $fname = $crate::private::Option::Some(value);
+                                        if content.is_empty() {
+                                            break;
+                                        }
+                                        content.parse::<$crate::private::Comma>()?;
+                                        continue
+                                    }
+                                }
+                                $crate::private::Option::Some($fname) => {
+                                    if <$ftype as $crate::EasyArgumentField>::try_extend($fname, &lookahead1, &content)? {
+                                        if content.is_empty() {
+                                            break;
+                                        }
+                                        content.parse::<$crate::private::Comma>()?;
+                                        continue
+                                    }
+                                }
+                            }
+                        )*
+                        return $crate::private::Result::Err(lookahead1.error());
+                    }
+                }
+
+                $crate::private::Result::Ok($name {
+                    $nname,
+                    $(
+                        $fname: match $fname {
+                            $crate::private::Option::None => <$ftype as $crate::EasyArgumentField>::missing().map_err(|msg| stream.error(msg))?,
+                            $crate::private::Option::Some($fname) => $fname,
+                        },
+                    )*
+                })
+            }
+        }
+
+        impl $crate::EasyArgument for $name {
+            fn name_display() -> &'static str {
+                <$ntype as $crate::EasyToken>::display()
+            }
+
+            fn name_span(&self) -> $crate::private::Span {
+                <$ntype as $crate::private::Spanned>::span(&self.$nname)
+            }
+        }
+    };
+}
+
+/// Defines argument structure of two fields.
+/// First field is a argument name.
+/// It must be [`EasyToken`] implementation that will be used to for [`EasyPeek`] implementation.
+/// Second field must be [`EasyArgumentField`] and is expected to follow `=` token.
+/// If name is not followed by `=`, second field is missing.
+/// In case of errors, argument name and span will be used.
+#[macro_export]
+macro_rules! easy_argument_value {
+    (
+        $(#[$meta:meta])*
+        $vis:vis struct $name:ident {
+            $(#[$nmeta:meta])* $nvis:vis $nname:ident: $ntype:ty,
+            $(#[$vmeta:meta])* $vvis:vis $vname:ident: $vtype:ty
+            $(,)?
+        }
+    ) => {
+        $(#[$meta])*
+        $vis struct $name {
+            $(#[$nmeta])* $nvis $nname: $ntype,
+            $(#[$vmeta])* $vvis $vname: $vtype,
+        }
+
+        impl $crate::EasyPeek for $name {
+            fn peek(lookahead1: &$crate::private::Lookahead1) -> $crate::private::bool {
+                <$ntype as $crate::EasyPeek>::peek(lookahead1)
+            }
+            fn peek_stream(stream: $crate::private::ParseStream) -> $crate::private::bool {
+                <$ntype as $crate::EasyPeek>::peek_stream(stream)
+            }
+        }
+
+        impl $crate::private::Parse for $name {
+            fn parse(stream: $crate::private::ParseStream) -> $crate::private::Result<Self, $crate::private::Error> {
+                let $nname = stream.parse::<$ntype>()?;
+
+                let _ = stream.parse::<$crate::private::Eq>()?;
+                let $vname = <$vtype as $crate::private::Parse>::parse(stream)?;
+
+                $crate::private::Result::Ok($name {
+                    $nname,
+                    $vname,
+                })
+            }
+        }
+
+        impl $crate::EasyArgument for $name {
             fn name_display() -> &'static str {
                 <$ntype as $crate::EasyToken>::display()
             }
@@ -492,21 +967,144 @@ macro_rules! easy_attribute {
 
     (
         $(#[$meta:meta])*
-        $vis:vis struct $name:ident (
-            $(#[$nmeta:meta])* @ $nvis:vis $ntype:ty
-            $(, $(#[$fmeta:meta])* $fvis:vis $ftype:ty)*
+        $vis:vis struct $name:ident {
+            $(#[$nmeta:meta])* $nvis:vis $nname:ident: $ntype:ty,
+            $(#[$vmeta:meta])* ? $vvis:vis $vname:ident: $vtype:ty
             $(,)?
-        )
+        }
     ) => {
-        $crate::easy_parse!{
-            $(#[$meta])*
-            $vis struct $name (
-                $(#[$nmeta])* @ $nvis $ntype,
-                $( $(#[$fmeta])* $fvis $ftype,)*
-            )
+        $(#[$meta])*
+        $vis struct $name {
+            $(#[$nmeta])* $nvis $nname: $ntype,
+            $(#[$vmeta])* $vvis $vname: $vtype,
         }
 
-        impl $crate::EasyAttribute for $name {
+        impl $crate::EasyPeek for $name {
+            fn peek(lookahead1: &$crate::private::Lookahead1) -> $crate::private::bool {
+                <$ntype as $crate::EasyPeek>::peek(lookahead1)
+            }
+            fn peek_stream(stream: $crate::private::ParseStream) -> $crate::private::bool {
+                <$ntype as $crate::EasyPeek>::peek_stream(stream)
+            }
+        }
+
+        impl $crate::private::Parse for $name {
+            fn parse(stream: $crate::private::ParseStream) -> $crate::private::Result<Self, $crate::private::Error> {
+                let $nname = stream.parse::<$ntype>()?;
+
+                if stream.is_empty() {
+                    $crate::private::Result::Ok($name {
+                        $nname,
+                        $vname: <$vtype as $crate::private::Default>::default(),
+                    })
+                } else {
+                    let _ = stream.parse::<$crate::private::Eq>()?;
+                    let $vname = <$vtype as $crate::private::Parse>::parse(stream)?;
+
+                    $crate::private::Result::Ok($name {
+                        $nname,
+                        $vname,
+                    })
+                }
+            }
+        }
+
+        impl $crate::EasyArgument for $name {
+            fn name_display() -> &'static str {
+                <$ntype as $crate::EasyToken>::display()
+            }
+
+            fn name_span(&self) -> $crate::private::Span {
+                <$ntype as $crate::private::Spanned>::span(&self.$nname)
+            }
+        }
+    };
+
+
+    (
+        $(#[$meta:meta])*
+        $vis:vis struct $name:ident (
+            $(#[$nmeta:meta])* $nvis:vis $ntype:ty,
+            $(#[$vmeta:meta])* $vvis:vis $vtype:ty
+            $(,)?
+        );
+    ) => {
+        $(#[$meta])*
+        $vis struct $name (
+            $(#[$nmeta])* $nvis $ntype,
+            $(#[$vmeta])* $vvis $vtype,
+        );
+
+        impl $crate::EasyPeek for $name {
+            fn peek(lookahead1: &$crate::private::Lookahead1) -> $crate::private::bool {
+                <$ntype as $crate::EasyPeek>::peek(lookahead1)
+            }
+            fn peek_stream(stream: $crate::private::ParseStream) -> $crate::private::bool {
+                <$ntype as $crate::EasyPeek>::peek_stream(stream)
+            }
+        }
+
+        impl $crate::private::Parse for $name {
+            fn parse(stream: $crate::private::ParseStream) -> $crate::private::Result<Self, $crate::private::Error> {
+                let name = stream.parse::<$ntype>()?;
+
+                let _ = stream.parse::<$crate::private::Eq>()?;
+                let value = <$vtype as $crate::private::Parse>::parse(stream)?;
+
+                $crate::private::Result::Ok($name(name, value))
+            }
+        }
+
+        impl $crate::EasyArgument for $name {
+            fn name_display() -> &'static str {
+                <$ntype as $crate::EasyToken>::display()
+            }
+
+            fn name_span(&self) -> $crate::private::Span {
+                <$ntype as $crate::private::Spanned>::span(&self.0)
+            }
+        }
+    };
+
+    (
+        $(#[$meta:meta])*
+        $vis:vis struct $name:ident (
+            $(#[$nmeta:meta])* $nvis:vis $nname:ident: $ntype:ty,
+            $(#[$vmeta:meta])* ? $vvis:vis $vname:ident: $vtype:ty
+            $(,)?
+        );
+    ) => {
+        $(#[$meta])*
+        $vis struct $name (
+            $(#[$nmeta])* $nvis $ntype,
+            $(#[$vmeta])* $vvis $vtype,
+        );
+
+        impl $crate::EasyPeek for $name {
+            fn peek(lookahead1: &$crate::private::Lookahead1) -> $crate::private::bool {
+                <$ntype as $crate::EasyPeek>::peek(lookahead1)
+            }
+            fn peek_stream(stream: $crate::private::ParseStream) -> $crate::private::bool {
+                <$ntype as $crate::EasyPeek>::peek_stream(stream)
+            }
+        }
+
+        impl $crate::private::Parse for $name {
+            fn parse(stream: $crate::private::ParseStream) -> $crate::private::Result<Self, $crate::private::Error> {
+                let name = stream.parse::<$ntype>()?;
+
+                if stream.is_empty() {
+                    $crate::private::Result::Ok($name(name, <$vtype as $crate::private::Default>::default()))
+                } else {
+                    let _ = stream.parse::<$crate::private::Eq>()?;
+                    let value = <$vtype as $crate::private::Parse>::parse(stream)?;
+
+                    $crate::private::Result::Ok($name(name, value))
+                }
+            }
+        }
+
+        impl $crate::EasyArgument for $name {
             fn name_display() -> &'static str {
                 <$ntype as $crate::EasyToken>::display()
             }
@@ -520,8 +1118,8 @@ macro_rules! easy_attribute {
 
 /// Trait that should be implemented for enums of where each variant is an attribute.
 /// It is also auto-implemented for all bare attributes.
-/// This trait is used to implement [`EasyAttributeField`] for various types.
-pub trait EasyAttributeGroup {
+/// This trait is used to implement [`EasyArgumentField`] for various types.
+pub trait EasyArgumentGroup {
     /// Attempt to parse attribute group.
     /// Returns some attribute when parsing succeeds.
     /// Returns none if attribute peeking returns `false`, signalling that stream contains some other attribute.
@@ -531,16 +1129,20 @@ pub trait EasyAttributeGroup {
         Self: Sized;
 
     /// Produces error with appropriate message when the attribute group overlaps another instance.
-    /// This is called by certain [`EasyAttributeField`] implementations.
+    /// This is called by certain [`EasyArgumentField`] implementations.
     ///
-    /// For example bare [`EasyAttributeGroup`] is used when attributes from group must be specified at most once.
+    /// For example bare [`EasyArgumentGroup`] is used when attributes from group must be specified at most once.
     /// And this method will be called when attribute group is encountered second time.
     fn overlap_error(&self, other: &Self) -> syn::Error;
+
+    /// Produces error with appropriate message when the attribute group is missing.
+    /// This is called by certain [`EasyArgumentField`] implementations.
+    fn missing_error() -> String;
 }
 
-impl<T> EasyAttributeGroup for T
+impl<T> EasyArgumentGroup for T
 where
-    T: EasyAttribute,
+    T: EasyArgument,
 {
     #[inline]
     fn try_parse(lookahead1: &Lookahead1, stream: ParseStream) -> syn::Result<Option<Self>> {
@@ -556,15 +1158,22 @@ where
             other.name_span(),
             format!(
                 "{} can be specified at most once",
-                <T as EasyAttribute>::name_display()
+                <T as EasyArgument>::name_display()
             ),
+        )
+    }
+
+    fn missing_error() -> String {
+        format!(
+            "{} attribute is required",
+            <T as EasyArgument>::name_display()
         )
     }
 }
 
-/// Defines attribute group as enum where each variant is attribute type.
+/// Defines argument group as enum where each variant is argument type.
 #[macro_export]
-macro_rules! easy_attribute_group {
+macro_rules! easy_argument_group {
     (
         $(#[$meta:meta])*
         $vis:vis enum $name:ident {
@@ -583,21 +1192,21 @@ macro_rules! easy_attribute_group {
             #[inline]
             pub fn name_display(&self) -> &'static str {
                 match *self {
-                    $( $name :: $vname (_) => <$vtype as $crate::EasyAttribute>::name_display(), )*
+                    $( $name :: $vname (_) => <$vtype as $crate::EasyArgument>::name_display(), )*
                 }
             }
 
             #[inline]
             pub fn name_span(&self) -> $crate::private::Span {
                 match *self {
-                    $( $name :: $vname (ref var) => <$vtype as $crate::EasyAttribute>::name_span(var), )*
+                    $( $name :: $vname (ref var) => <$vtype as $crate::EasyArgument>::name_span(var), )*
                 }
             }
         }
 
-        impl $crate::EasyAttributeGroup for $name {
+        impl $crate::EasyArgumentGroup for $name {
             #[inline]
-            fn try_parse(lookahead1: &$crate::private::Lookahead1, stream: $crate::private::ParseStream) -> $crate::private::Result<$crate::private::Option<Self>> {
+            fn try_parse(lookahead1: &$crate::private::Lookahead1, stream: $crate::private::ParseStream) -> $crate::private::Result<$crate::private::Option<Self>, $crate::private::Error> {
                 #![allow(unused_variables)]
 
                 $(
@@ -620,15 +1229,24 @@ macro_rules! easy_attribute_group {
 
                 $crate::private::Error::new(other.name_span(), msg)
             }
+
+            fn missing_error() -> String {
+                $crate::private::format!(
+                    $crate::private::concat!("One of {{", $(
+                        $crate::easy_replace_tokens!("{}, ", $vname),
+                    )* "}} is expected"),
+                    $(<$vtype as $crate::EasyArgument>::name_display(),)*
+                )
+            }
         }
     };
 }
 
 /// Trait for types that can be used as fields in easy attributes structures.
 /// Fields can parsed and extended when encountered again in parsing stream.
-/// If field is never encountered - default value will be used.
-/// If attribute type or group have no default wrap it into [`Option`].
-pub trait EasyAttributeField: Default {
+/// If field is never encountered - [`missing`] value will be used.
+/// If attribute type or group is not mandatory - wrap it into [`Option`].
+pub trait EasyArgumentField {
     /// Attempt to parse attribute field.
     /// Returns some field when parsing succeeds.
     /// Returns none if attribute peeking returns `false`, signalling that stream contains some other attribute.
@@ -643,65 +1261,84 @@ pub trait EasyAttributeField: Default {
     /// Returns false if attribute peeking returns `false`, signalling that stream contains some other attribute.
     /// Returns error if peeking returns `true` but parsing or extending fails.
     fn try_extend(&mut self, lookahead1: &Lookahead1, stream: ParseStream) -> syn::Result<bool>;
+
+    /// Called if the attribute field was never parsed.
+    /// Returns error if attribute is mandatory.
+    /// Otherwise returns an instance that will be used to build attributes structure.
+    fn missing() -> Result<Self, String>
+    where
+        Self: Sized;
 }
 
-impl<T> EasyAttributeField for T
+impl<T> EasyArgumentField for T
 where
-    T: EasyAttributeGroup + Default,
+    T: EasyArgumentGroup,
 {
     fn try_parse(lookahead1: &Lookahead1, stream: ParseStream) -> syn::Result<Option<Self>> {
-        <T as EasyAttributeGroup>::try_parse(lookahead1, stream)
+        <T as EasyArgumentGroup>::try_parse(lookahead1, stream)
     }
 
     fn try_extend(&mut self, lookahead1: &Lookahead1, stream: ParseStream) -> syn::Result<bool> {
-        match <T as EasyAttributeGroup>::try_parse(lookahead1, stream)? {
+        match <T as EasyArgumentGroup>::try_parse(lookahead1, stream)? {
             None => Ok(false),
             Some(other) => Err(self.overlap_error(&other)),
         }
     }
+
+    fn missing() -> Result<Self, String> {
+        Err(T::missing_error())
+    }
 }
 
-impl<T> EasyAttributeField for Option<T>
+impl<T> EasyArgumentField for Option<T>
 where
-    T: EasyAttributeGroup,
+    T: EasyArgumentField,
 {
     fn try_parse(lookahead1: &Lookahead1, stream: ParseStream) -> syn::Result<Option<Self>> {
-        <T as EasyAttributeGroup>::try_parse(lookahead1, stream).map(Some)
+        <T as EasyArgumentField>::try_parse(lookahead1, stream).map(Some)
     }
 
     fn try_extend(&mut self, lookahead1: &Lookahead1, stream: ParseStream) -> syn::Result<bool> {
-        match <T as EasyAttributeGroup>::try_parse(lookahead1, stream)? {
-            None => Ok(false),
-            Some(attr) => match self {
-                None => {
+        match self {
+            None => match <T as EasyArgumentField>::try_parse(lookahead1, stream)? {
+                None => Ok(false),
+                Some(attr) => {
                     *self = Some(attr);
                     Ok(true)
                 }
-                Some(some) => Err(some.overlap_error(&attr)),
             },
+            Some(attr) => attr.try_extend(lookahead1, stream),
         }
+    }
+
+    fn missing() -> Result<Self, String> {
+        Ok(None)
     }
 }
 
-impl<T> EasyAttributeField for Vec<T>
+impl<T> EasyArgumentField for Vec<T>
 where
-    T: EasyAttributeGroup,
+    T: EasyArgumentGroup,
 {
     fn try_parse(lookahead1: &Lookahead1, stream: ParseStream) -> syn::Result<Option<Self>> {
-        match <T as EasyAttributeGroup>::try_parse(lookahead1, stream)? {
+        match <T as EasyArgumentGroup>::try_parse(lookahead1, stream)? {
             None => Ok(None),
             Some(attr) => Ok(Some(vec![attr])),
         }
     }
 
     fn try_extend(&mut self, lookahead1: &Lookahead1, stream: ParseStream) -> syn::Result<bool> {
-        match <T as EasyAttributeGroup>::try_parse(lookahead1, stream)? {
+        match <T as EasyArgumentGroup>::try_parse(lookahead1, stream)? {
             None => Ok(false),
             Some(attr) => {
                 self.push(attr);
                 Ok(true)
             }
         }
+    }
+
+    fn missing() -> Result<Self, String> {
+        Ok(Vec::new())
     }
 }
 
@@ -711,20 +1348,20 @@ where
 /// They can be parsed inside attribute that accepts a list of flags if provided.
 #[macro_export]
 macro_rules! easy_flags {
-    ( $(#[$onemeta:meta])* $ovis:vis $onekw:ident as $one:ident $(| $(#[$manymeta:meta])* $mvis:vis $manykw:ident as $many:ident)? { $( $(#[$flagmeta:meta])* $flag:ident $( = $value:literal)?),* $(,)? }) => {
-        $($crate::easy_token!($flag);)*
+    ( $(#[$onemeta:meta])* $ovis:vis $one:ident($onekw:ident) $(| $(#[$manymeta:meta])* $mvis:vis $many:ident($manykw:ident))? { $( $(#[$flagmeta:meta])* $flag:ident($flagkw:ident)),* $(,)? }) => {
+        $($crate::easy_token!($flagkw);)*
         $crate::easy_token!($onekw);
 
         $(#[$onemeta])*
         #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
         $ovis enum $one {
-            $( $(#[$flagmeta])* $flag($flag), )*
+            $( $(#[$flagmeta])* $flag($flagkw), )*
         }
 
         impl $one {
             #[allow(dead_code)]
-            $ovis fn try_parse_terminated<T: $crate::private::Parse>(lookahead1: &$crate::private::Lookahead1, stream: $crate::private::ParseStream) -> $crate::private::Result<$crate::private::Option<$crate::private::Punctuated<Self, $crate::private::Comma>>> {
-                if $( lookahead1.peek($flag) || )* false {
+            $ovis fn try_parse_terminated<T: $crate::private::Parse>(lookahead1: &$crate::private::Lookahead1, stream: $crate::private::ParseStream) -> $crate::private::Result<$crate::private::Option<$crate::private::Punctuated<Self, $crate::private::Comma>>, $crate::private::Error> {
+                if $( lookahead1.peek($flagkw) || )* false {
                     stream.parse_terminated::<Self, $crate::private::Comma>($crate::private::Parse::parse).map($crate::private::Option::Some)
                 } else {
                     $crate::private::Result::Ok($crate::private::Option::None)
@@ -735,18 +1372,18 @@ macro_rules! easy_flags {
         impl $crate::private::Spanned for $one {
             fn span(&self) -> $crate::private::Span {
                 match *self {
-                    $( $one::$flag (ref flag) => $crate::Spanned::span(flag), )*
+                    $( $one::$flag (ref flag) => $crate::private::Spanned::span(flag), )*
                 }
             }
         }
 
-        impl $crate::EasyAttributeGroup for $one {
-            fn try_parse(lookahead1: &$crate::private::Lookahead1, stream: $crate::private::ParseStream) -> $crate::private::Result<$crate::private::Option<Self>> {
+        impl $crate::EasyArgumentGroup for $one {
+            fn try_parse(lookahead1: &$crate::private::Lookahead1, stream: $crate::private::ParseStream) -> $crate::private::Result<$crate::private::Option<Self>, $crate::private::Error> {
                 #![allow(unused_variables)]
 
                 $(
-                    if lookahead1.peek($flag) {
-                        let flag = stream.parse::<$flag>()?;
+                    if lookahead1.peek($flagkw) {
+                        let flag = stream.parse::<$flagkw>()?;
                         return $crate::private::Result::Ok( $crate::private::Option::Some( $one::$flag(flag)) );
                     }
                 )*
@@ -755,19 +1392,23 @@ macro_rules! easy_flags {
             }
 
             fn overlap_error(&self, other: &Self) -> $crate::private::Error {
-                let msg = $crate::private::concat!("Only one flag {", $( $crate::private::stringify!($flag), )* "} is expected");
+                let msg = $crate::private::concat!("Only one flag {", $( $crate::private::stringify!($flagkw), ", ", )* "} is expected");
                 $crate::private::Error::new(
                     $crate::private::Spanned::span(other),
                     msg,
                 )
             }
+
+            fn missing_error() -> $crate::private::String {
+                String::from($crate::private::concat!("One flag of {", $( $crate::private::stringify!($flagkw), ", ", )* "} is expected"))
+            }
         }
 
         impl $crate::private::Parse for $one {
-            fn parse(stream: $crate::private::ParseStream) -> $crate::private::Result<Self> {
+            fn parse(stream: $crate::private::ParseStream) -> $crate::private::Result<Self, $crate::private::Error> {
                 let lookahead1 = stream.lookahead1();
 
-                match <Self as $crate::EasyAttributeGroup>::try_parse(&lookahead1, stream)? {
+                match <Self as $crate::EasyArgumentGroup>::try_parse(&lookahead1, stream)? {
                     $crate::private::Option::None => $crate::private::Result::Err(lookahead1.error()),
                     $crate::private::Option::Some(flag) => $crate::private::Result::Ok(flag),
                 }
@@ -778,51 +1419,83 @@ macro_rules! easy_flags {
             $crate::easy_token!($manykw);
 
             $(#[$manymeta])*
-            #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
+            #[derive(Clone, Debug)]
             #[allow(dead_code)]
             $mvis struct $many {
-                pub ones: $crate::private::Vec<$onekw>,
-                pub manies: $crate::private::Vec<$manykw>,
+                pub start_span: $crate::private::Span,
+                pub end_span: $crate::private::Span,
                 pub flags: $crate::private::Punctuated<$one, $crate::private::Comma>,
             }
 
-            impl $crate::EasyAttributeField for $many {
-                fn try_parse(lookahead1: &$crate::private::Lookahead1, stream: $crate::private::ParseStream) -> $crate::private::Result<$crate::private::Option<Self>> {
+            impl $many {
+                #[allow(dead_code)]
+                pub fn new(span: $crate::private::Span) -> Self {
+                    $many {
+                        start_span: span,
+                        end_span: span,
+                        flags: $crate::private::Punctuated::new(),
+                    }
+                }
+            }
+
+            impl $crate::private::Default for $many {
+                fn default() -> Self {
+                    $many {
+                        start_span: $crate::private::Span::call_site(),
+                        end_span: $crate::private::Span::call_site(),
+                        flags: $crate::private::Punctuated::default(),
+                    }
+                }
+            }
+
+            impl $crate::private::Spanned for $many {
+                fn span(&self) -> $crate::private::Span {
+                    self.start_span.join(self.end_span).unwrap_or(self.start_span)
+                }
+            }
+
+            impl $crate::EasyArgumentField for $many {
+                fn try_parse(lookahead1: &$crate::private::Lookahead1, stream: $crate::private::ParseStream) -> $crate::private::Result<$crate::private::Option<Self>, $crate::private::Error> {
                     if lookahead1.peek($onekw) {
-                        let mut ones = $crate::private::Vec::new();
-                        ones.push(stream.parse::<$onekw>()?);
+                        let one = stream.parse::<$onekw>()?;
 
                         let content;
                         $crate::private::parenthesized!(content in stream);
 
-                        let mut flags = $crate::private::Punctuated::new();
-                        flags.push(content.parse::<$one>()?);
+                        let flag = content.parse::<$one>()?;
 
-                        $crate::private::Result::Ok(Some($many {
-                            ones,
-                            manies: $crate::private::Vec::default(),
-                            flags,
+                        $crate::private::Result::Ok($crate::private::Option::Some($many {
+                            start_span: $crate::private::Spanned::span(&one),
+                            end_span: $crate::private::Spanned::span(&flag),
+                            flags: {
+                                let mut flags = $crate::private::Punctuated::new();
+                                flags.push(flag);
+                                flags
+                            },
                         }))
                     } else if lookahead1.peek($manykw) {
-                        let mut manies = $crate::private::Vec::new();
-                        manies.push(stream.parse::<$manykw>()?);
+                        let many = stream.parse::<$manykw>()?;
 
                         let content;
                         $crate::private::parenthesized!(content in stream);
                         let flags = content.parse_terminated(<$one as $crate::private::Parse>::parse)?;
 
+                        let end_span = flags.last().map($crate::private::Spanned::span).unwrap_or($crate::private::Spanned::span(&many));
+
                         $crate::private::Result::Ok($crate::private::Option::Some($many {
-                            ones: $crate::private::Vec::new(),
-                            manies,
+                            start_span: $crate::private::Spanned::span(&many),
+                            end_span,
                             flags,
                         }))
                     } else {
                         match $one::try_parse_terminated::<$crate::private::Comma>(lookahead1, stream)? {
                             $crate::private::Option::None => $crate::private::Result::Ok($crate::private::Option::None),
                             $crate::private::Option::Some(flags) => {
+                                let flag = flags.last().unwrap();
+                                let span = $crate::private::Spanned::span(flag);
                                 $crate::private::Result::Ok($crate::private::Option::Some($many {
-                                    ones: $crate::private::Vec::new(),
-                                    manies: $crate::private::Vec::new(),
+                                    start_span: span,
+                                    end_span: span,
                                     flags,
                                 }))
                             }
@@ -830,23 +1503,27 @@ macro_rules! easy_flags {
                     }
                 }
 
-                fn try_extend(&mut self, lookahead1: &$crate::private::Lookahead1, stream: $crate::private::ParseStream) -> $crate::private::Result<$crate::private::bool> {
+                fn try_extend(&mut self, lookahead1: &$crate::private::Lookahead1, stream: $crate::private::ParseStream) -> $crate::private::Result<$crate::private::bool, $crate::private::Error> {
                     if lookahead1.peek($onekw) {
-                        self.ones.push(stream.parse::<$onekw>()?);
+                        let _ = stream.parse::<$onekw>()?;
 
                         let content;
                         $crate::private::parenthesized!(content in stream);
 
                         let flag = content.parse::<$one>()?;
+                        self.end_span = $crate::private::Spanned::span(&flag);
                         self.flags.push(flag);
 
                         $crate::private::Result::Ok(true)
                     } else if lookahead1.peek($manykw) {
-                        self.manies.push(stream.parse::<$manykw>()?);
+                        let many = stream.parse::<$manykw>()?;
 
                         let content;
                         $crate::private::parenthesized!(content in stream);
+
                         let flags = content.parse_terminated::<_, $crate::private::Comma>(<$one as $crate::private::Parse>::parse)?;
+
+                        self.end_span = flags.last().map($crate::private::Spanned::span).unwrap_or($crate::private::Spanned::span(&many));
                         self.flags.extend(flags);
 
                         $crate::private::Result::Ok(true)
@@ -854,19 +1531,26 @@ macro_rules! easy_flags {
                         match $one::try_parse_terminated::<$crate::private::Comma>(lookahead1, stream)? {
                             $crate::private::Option::None => $crate::private::Result::Ok(false),
                             $crate::private::Option::Some(flags) => {
+                                let flag = flags.last().unwrap();
+                                self.end_span = $crate::private::Spanned::span(flag);
+
                                 self.flags.extend(flags);
                                 $crate::private::Result::Ok(true)
                             }
                         }
                     }
                 }
+
+                fn missing() -> $crate::private::Result<Self, $crate::private::String> {
+                    $crate::private::Result::Err(<$one as $crate::EasyArgumentGroup>::missing_error())
+                }
             }
 
             impl $crate::private::Parse for $many {
-                fn parse(stream: $crate::private::ParseStream) -> $crate::private::Result<Self> {
+                fn parse(stream: $crate::private::ParseStream) -> $crate::private::Result<Self, $crate::private::Error> {
                     let lookahead1 = stream.lookahead1();
 
-                    match <Self as $crate::EasyAttributeField>::try_parse(&lookahead1, stream)? {
+                    match <Self as $crate::EasyArgumentField>::try_parse(&lookahead1, stream)? {
                         $crate::private::Option::None => $crate::private::Result::Err(lookahead1.error()),
                         $crate::private::Option::Some(flag) => $crate::private::Result::Ok(flag),
                     }
@@ -876,17 +1560,151 @@ macro_rules! easy_flags {
     };
 }
 
+/// Defines structure and implements [`Parse`] for it.
+///
+/// Fields will be parsed in any order separated by specified punctuation.
+/// Parsing continues until the end of this parse stream.
+#[macro_export]
+macro_rules! easy_terminated {
+    (
+        @($punct:ident)
+        $(#[$meta:meta])*
+        $vis:vis struct $name:ident {
+            $($(#[$fmeta:meta])* $fvis:vis $fname:ident : $ftype:ty),*
+            $(,)?
+        }
+    ) => {
+        $(#[$meta])*
+        $vis struct $name {
+            $($(#[$fmeta])* $fvis $fname : $ftype,)*
+        }
+
+        impl $crate::private::Parse for $name {
+            fn parse(stream: $crate::private::ParseStream) -> $crate::private::Result<Self> {
+                $(let $fname = $crate::private::None;)*
+
+                loop {
+                    if stream.is_empty() {
+                        break;
+                    }
+                    let lookahead1 = stream.lookahead1();
+                    $(
+                        match &mut $fname {
+                            $crate::private::Option::None => {
+                                if let $crate::private::Option::Some(value) = <$ftype as $crate::EasyArgumentField>::try_parse(&lookahead1, stream)? {
+                                    $fname = $crate::private::Option::Some(value);
+                                    if stream.is_empty() {
+                                        break;
+                                    }
+                                    stream.parse::<$punct>()?;
+                                    continue
+                                }
+                            }
+                            $crate::private::Option::Some($fname) => {
+                                if <$ftype as $crate::EasyArgumentField>::try_extend($fname, &lookahead1, stream)? {
+                                    if stream.is_empty() {
+                                        break;
+                                    }
+                                    stream.parse::<$punct>()?;
+                                    continue
+                                }
+                            }
+                        }
+                    )*
+                    return $crate::private::Result::Err(lookahead1.error());
+                }
+
+                $crate::private::Result::Ok($name {
+                    $(
+                        $fname: match $fname {
+                            $crate::private::Option::None => <$ftype as $crate::EasyArgumentField>::missing().map_err(|msg| stream.error(msg))?,
+                            $crate::private::Option::Some($fname) => $fname,
+                        },
+                    )*
+                })
+            }
+        }
+    };
+}
+
+/// Defines structure and implements [`Parse`] for it.
+///
+/// Fields will be parsed in any order separated by specified punctuation, not accepting trailing punctuation.
+/// Parsing continues as long as punctuation $punct is present at the head of the stream.
+#[macro_export]
+macro_rules! easy_separated {
+    (
+        @($punct:ident)
+        $(#[$meta:meta])*
+        $vis:vis struct $name:ident {
+            $($(#[$fmeta:meta])* $fvis:vis $fname:ident : $ftype:ty),*
+            $(,)?
+        }
+    ) => {
+        $(#[$meta])*
+        $vis struct $name {
+            $($(#[$fmeta])* $fvis $fname : $ftype,)*
+        }
+
+        impl $crate::private::Parse for $name {
+            fn parse(stream: $crate::private::ParseStream) -> $crate::private::Result<Self> {
+                $(let $fname = $crate::private::None;)*
+
+                loop {
+                    if stream.is_empty() {
+                        break;
+                    }
+                    let lookahead1 = stream.lookahead1();
+                    $(
+                        match &mut $fname {
+                            $crate::private::Option::None => {
+                                if let $crate::private::Option::Some(value) = <$ftype as $crate::EasyArgumentField>::try_parse(&lookahead1, stream)? {
+                                    $fname = $crate::private::Option::Some(value);
+                                    if !<$punct as $crate::private::EasyPeek>::peek_stream(stream) {
+                                        break;
+                                    }
+                                    stream.parse::<$punct>()?;
+                                    continue
+                                }
+                            }
+                            $crate::private::Option::Some($fname) => {
+                                if <$ftype as $crate::EasyArgumentField>::try_extend($fname, &lookahead1, stream)? {
+                                    if !<$punct as $crate::private::EasyPeek>::peek_stream(stream) {
+                                        break;
+                                    }
+                                    stream.parse::<$punct>()?;
+                                    continue
+                                }
+                            }
+                        }
+                    )*
+                    return $crate::private::Result::Err(lookahead1.error());
+                }
+
+                $crate::private::Result::Ok($name {
+                    $(
+                        $fname: match $fname {
+                            $crate::private::Option::None => <$ftype as $crate::EasyArgumentField>::missing().map_err(|msg| stream.error(msg))?,
+                            $crate::private::Option::Some($fname) => $fname,
+                        },
+                    )*
+                })
+            }
+        }
+    };
+}
+
 /// Collection of attributes that can be parsed from array of attributes.
 /// Can be easily applied to field's or type's attributes vector.
 pub trait EasyAttributes {
     /// Parse attributes array.
-    fn parse(attrs: &[syn::Attribute]) -> syn::Result<Self>
+    fn parse(attrs: &[syn::Attribute], span: Span) -> syn::Result<Self>
     where
         Self: Sized;
 }
 
 /// Defines struct and implement [`EasyAttributes`] for it.
-/// Each field's type must implement [`EasyAttributeField`].
+/// Each field's type must implement [`EasyArgumentField`].
 #[macro_export]
 macro_rules! easy_attributes {
     (
@@ -903,29 +1721,42 @@ macro_rules! easy_attributes {
         }
 
         impl $crate::EasyAttributes for $name {
-            fn parse(attrs: &[$crate::private::Attribute]) -> $crate::private::Result<Self> {
+            fn parse(attrs: &[$crate::private::Attribute], span: $crate::private::Span) -> $crate::private::Result<Self, $crate::private::Error> {
                 $(let mut $fname = $crate::private::Option::None;)*
 
                 for attr in attrs {
                     if attr.path.is_ident(::core::stringify!($namespace)) {
                         attr.parse_args_with(|stream: $crate::private::ParseStream| {
-                            let lookahead1 = stream.lookahead1();
-                            $(
-                                match &mut $fname {
-                                    $crate::private::Option::None => {
-                                        if let $crate::private::Option::Some(value) = <$ftype as $crate::EasyAttributeField>::try_parse(&lookahead1, stream)? {
-                                            $fname = $crate::private::Option::Some(value);
-                                            return $crate::private::Result::Ok(())
-                                        }
-                                    }
-                                    $crate::private::Option::Some($fname) => {
-                                        if <$ftype as $crate::EasyAttributeField>::try_extend($fname, &lookahead1, stream)? {
-                                            return $crate::private::Result::Ok(())
-                                        }
-                                    }
+                            loop {
+                                if stream.is_empty() {
+                                    return $crate::private::Result::Ok(());
                                 }
-                            )*
-                            $crate::private::Result::Err(lookahead1.error())
+                                let lookahead1 = stream.lookahead1();
+                                $(
+                                    match &mut $fname {
+                                        $crate::private::Option::None => {
+                                            if let $crate::private::Option::Some(value) = <$ftype as $crate::EasyArgumentField>::try_parse(&lookahead1, stream)? {
+                                                $fname = $crate::private::Option::Some(value);
+                                                if stream.is_empty() {
+                                                    return $crate::private::Result::Ok(());
+                                                }
+                                                stream.parse::<$crate::private::Comma>()?;
+                                                continue;
+                                            }
+                                        }
+                                        $crate::private::Option::Some($fname) => {
+                                            if <$ftype as $crate::EasyArgumentField>::try_extend($fname, &lookahead1, stream)? {
+                                                if stream.is_empty() {
+                                                    return $crate::private::Result::Ok(());
+                                                }
+                                                stream.parse::<$crate::private::Comma>()?;
+                                                continue;
+                                            }
+                                        }
+                                    }
+                                )*
+                                return $crate::private::Result::Err(lookahead1.error())
+                            }
                         })?;
                     }
                 }
@@ -933,7 +1764,7 @@ macro_rules! easy_attributes {
                 $crate::private::Result::Ok($name {
                     $(
                         $fname: match $fname {
-                            $crate::private::Option::None => <$ftype as ::core::default::Default>::default(),
+                            $crate::private::Option::None => <$ftype as $crate::EasyArgumentField>::missing().map_err(|msg| $crate::private::Error::new(span, msg))?,
                             $crate::private::Option::Some($fname) => $fname,
                         },
                     )*
@@ -960,14 +1791,14 @@ easy_parse! {
     /// # use {proc_easy::ReferenceExpr, syn::parse_quote, quote::{quote, format_ident}};
     /// /// Without `const` token it decides to parse `Member` variant.
     /// let re: ReferenceExpr = parse_quote!(foo);
-    /// assert_eq!(re, ReferenceExpr::Member { ident: format_ident!("foo") });
+    /// assert_eq!(re, ReferenceExpr::Member { member: format_ident!("foo").into() });
     /// ```
-    #[derive(Debug, PartialEq, Eq)]
+    #[derive(Clone, Debug, PartialEq, Eq)]
     pub enum ReferenceExpr {
-        /// Member ident.
-        Member {
+        /// Member reference.
+        ! Member {
             ///
-            ident: syn::Ident,
+            member: syn::Member,
         },
         /// Constant expression
         Expr {
@@ -985,29 +1816,72 @@ easy_parse! {
 pub mod examples {
     easy_flags! {
         /// Nya flags documentation
-        pub nya as Nya |
-        /// Nya flags set documentation
-        nyas as Nyas {
+        pub Nya(nya) | pub Nyas(nyas) {
             /// Puk documentation
-            Puk,
+            Puk(puk),
             /// Pak documentation
-            Pak,
+            Pak(pak),
         }
     }
 
     easy_parse! {
         /// Foo
-        #[derive(Debug)]
+        #[derive(Clone, Debug)]
         pub struct Foo {
             /// Foo
             pub foo: syn::Ident,
+        }
+    }
+
+    easy_parse! {
+        /// Bar
+        #[derive(Clone, Copy, Debug)]
+        pub struct Bar;
+    }
+
+    easy_parse! {
+        /// Baz
+        #[derive(Clone, Debug)]
+        pub struct Baz(pub syn::Member);
+    }
+
+    easy_parse! {
+        /// Baz
+        #[derive(Clone, Debug)]
+        pub enum FooBar {
+            ! Bar(Bar),
+            Foo(Foo),
+        }
+    }
+
+    easy_token!(arg);
+
+    easy_argument! {
+        /// Baz
+        #[derive(Clone, Debug)]
+        pub struct Arg {
+            pub arg: arg,
+            pub foobar: FooBar,
+        }
+    }
+
+    easy_token!(outer);
+
+    easy_argument_tuple! {
+        /// Baz
+        #[derive(Clone, Debug)]
+        pub struct Outer {
+            pub outer: outer,
+            pub arg: Arg,
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::{EasyAttributes, Parenthesized};
+    use proc_macro2::Span;
+
+    use crate::EasyAttributes;
 
     #[allow(warnings)]
     enum Option {}
@@ -1033,18 +1907,20 @@ mod tests {
         };
     }
 
+    trait Default {}
+
     #[allow(warnings)]
     enum bool {}
 
     easy_flags! {
         /// Docs
-        pub nya as Nya |
+        pub Nya(nya) |
         /// Docs
-        nyas as Nyas {
+        Nyas(nyas) {
             /// Docs
-            Puk,
+            Puk(puk),
             /// Docs
-            Pak,
+            Pak(pak),
         }
     }
 
@@ -1052,54 +1928,47 @@ mod tests {
     easy_token!(bar);
     easy_token!(baz);
 
-    easy_parse! {
+    easy_token!(a);
+    easy_token!(b);
+
+    easy_argument_value! {
         /// Docs
         #[derive(Clone, Debug)]
-        pub struct FooInner {
+        pub struct A {
             /// Docs
-            pub ident: syn::Ident
+            pub a: a,
+
+            /// Docs
+            pub ident: syn::Ident,
         }
     }
 
-    easy_parse! {
+    easy_argument_value! {
         /// Docs
         #[derive(Clone, Debug)]
-        pub struct FooInner2 {
+        pub struct B {
             /// Docs
-            pub eq: syn::Token![=],
+            pub b: b,
+
             /// Docs
-            pub ident: syn::Ident
+            pub lit: syn::LitInt,
         }
     }
 
-    easy_parse! {
-        /// Docs
-        #[derive(Clone, Debug)]
-        pub enum FooVariant {
-            /// Docs
-            Inner(
-                /// Docs
-                Parenthesized<FooInner>, syn::Token![!]
-            ),
-            Inner2(
-                /// Docs
-                FooInner2
-            ),
-        }
-    }
-
-    easy_attribute! {
+    easy_argument_tuple! {
         /// Docs
         #[derive(Clone, Debug)]
         pub struct Foo {
             /// Docs
             pub name: foo,
             /// Docs
-            pub inner: FooVariant,
+            pub a: A,
+            /// Docs
+            pub b: B,
         }
     }
 
-    easy_attribute! {
+    easy_argument! {
         /// Docs
         #[derive(Clone, Debug)]
         pub struct Bar {
@@ -1110,7 +1979,7 @@ mod tests {
         }
     }
 
-    easy_attribute_group! {
+    easy_argument_group! {
         /// Docs
         #[derive(Clone, Debug)]
         pub enum Group {
@@ -1140,24 +2009,23 @@ mod tests {
     }
 
     #[test]
-    fn test_foo() {
+    fn test1() {
         let attrs = quote::quote!(
-            #[easy(foo(a)!)]
-            #[easy(bar b)]
+            #[easy(foo(a = a, b = 42), bar b)]
         );
 
         let attrs = syn::parse::Parser::parse2(syn::Attribute::parse_outer, attrs).unwrap();
 
-        let bar = Attributes::parse(&attrs).unwrap();
+        let bar = Attributes::parse(&attrs, Span::call_site()).unwrap();
         match &bar.foo {
             std::option::Option::Some(Foo {
-                inner: FooVariant::Inner(inner, _),
+                a: A { ident, .. },
+                b: B { lit, .. },
                 ..
-            }) => assert_eq!(inner.ident, "a"),
-            std::option::Option::Some(Foo {
-                inner: FooVariant::Inner2(inner),
-                ..
-            }) => assert_eq!(inner.ident, "a"),
+            }) => {
+                assert_eq!(ident, "a");
+                assert_eq!(lit.base10_parse::<u32>().unwrap(), 42);
+            }
             _ => panic!(),
         }
 
