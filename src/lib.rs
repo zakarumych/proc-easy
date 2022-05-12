@@ -1,7 +1,31 @@
 //!
-//! Making proc-macro easy.
+//! Macros to make writing proc-macro crates easy.
 //!
+//! This crate provides mainly macros and supporting types and traits
+//! to reduce amount of boilerplate required for working with [`syn`].
 //!
+//! Currently most of the macros are targeted to construct types
+//! that then can be parses to configure proc-macro and proc-derive-macro implementation.
+//!
+//! [`easy_token!`] - defines new custom token from ident. To be used in other structs.
+//!
+//! [`easy_parse!`] - defines struct or enum that can be parsed and peeked from stream.
+//!
+//! [`easy_argument!`] - defines struct with a token as a name and the rest to be parsed as-is.
+//!
+//! [`easy_argument_group!`] - defines a group of arguments as enum of arguments.
+//!
+//! [`easy_argument_tuple!`] - specialized version of [`easy_argument!`] that parses fields starting from 2nd as [`EasyArgumentField`]s inside parenthesis and in any order.
+//!
+//! [`easy_argument_value!`] - specialized version of [`easy_argument!`] for 2 field structs. It defines 2nd field as a value that can be parsed after `=` token or inside parenthesis.
+//!
+//! [`easy_separated!`] - defines struct that parses fields as [`EasyArgumentField`]s in any order. Does not accept trailing punctuation.
+//!
+//! [`easy_terminated!`] - defines struct that parses fields as [`EasyArgumentField`]s in any order. Accepts trailing punctuation. Parses whole stream.
+//!
+//! [`easy_attributes!`] - defines struct that parses fields as [`EasyArgumentField`]s from a slice of [`Attribute`]s with specified namespace.
+//!
+//! [`EasyArgumentField`] is implemented for types defined with [`easy_token!`], [`easy_argument!`], [`easy_argument_tuple!`], [`easy_argument_value!`] and [`easy_argument_group!`] possibly wrapped in [`Option`] or [`Vec`].
 //!
 
 #![deny(missing_docs)]
@@ -16,6 +40,7 @@ use syn::{
     parse::{Lookahead1, Parse, ParseStream},
     spanned::Spanned,
     token::{Paren, Token},
+    Attribute,
 };
 
 #[doc(hidden)]
@@ -393,8 +418,8 @@ where
 
 /// Similar to [`Option`] but implements [`Parse`] when `T` implements [`EasyPeek`]
 ///
-/// If stream doesn't start as `T` then no tokens are consumed and [`Nothing`] is returned.
-/// Otherwise `T` is parsed and returned wrapped in [`Just`].
+/// If stream doesn't start as `T` then no tokens are consumed and [`EasyMaybe::Nothing`] is returned.
+/// Otherwise `T` is parsed and returned wrapped in [`EasyMaybe::Just`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum EasyMaybe<T> {
     /// Nothing at all
@@ -1292,7 +1317,7 @@ macro_rules! easy_argument_group {
 
 /// Trait for types that can be used as fields in easy attributes structures.
 /// Fields can parsed and extended when encountered again in parsing stream.
-/// If field is never encountered - [`missing`] value will be used.
+/// If field is never encountered - [`EasyArgumentField::missing`] value will be used.
 /// If attribute type or group is not mandatory - wrap it into [`Option`].
 pub trait EasyArgumentField {
     /// Attempt to parse attribute field.
@@ -1754,7 +1779,7 @@ macro_rules! easy_separated {
 /// Can be easily applied to attributes vector parsed by [`syn`].
 pub trait EasyAttributes {
     /// Parse attributes array.
-    fn parse(attrs: &[syn::Attribute], span: Span) -> syn::Result<Self>
+    fn parse(attrs: &[Attribute], span: Span) -> syn::Result<Self>
     where
         Self: Sized;
 }
