@@ -39,19 +39,13 @@ pub mod private {
 
 #[doc(hidden)]
 #[macro_export]
-macro_rules! easy_void_tokens {
-    ($($t:tt)*) => {};
-}
-
-#[doc(hidden)]
-#[macro_export]
 macro_rules! easy_replace_tokens {
     ($with:tt, $($t:tt)*) => {
         $with
     };
 }
 
-/// Peekable, parsable token.
+/// Peekable and parsable single token.
 ///
 /// [`easy_token!`] macro produces types that implement this trait.
 pub trait EasyToken: EasyPeek + Parse + Spanned {
@@ -59,7 +53,7 @@ pub trait EasyToken: EasyPeek + Parse + Spanned {
     fn display() -> &'static str;
 }
 
-/// Produces type with specified name that implement [`EasyToken`] and can be parsed from the name ident.
+/// Defines a type with specified name that implement [`EasyToken`] and can be parsed from that name ident.
 #[macro_export]
 macro_rules! easy_token {
     ($name:ident) => {
@@ -74,8 +68,9 @@ macro_rules! easy_token {
     };
 }
 
-/// Provides interface for peeking tokens before parsing.
-/// When implemented for complex structures, peeks first token.
+/// Provides interface for peeking first token before parsing.
+///
+/// May be implemented for complex structures by peeking first field.
 pub trait EasyPeek: Parse {
     /// Peek head token before parsing.
     fn peek(lookahead1: &Lookahead1) -> bool;
@@ -99,6 +94,7 @@ where
     }
 }
 
+/// HACK around trivial bounds error.
 #[doc(hidden)]
 #[allow(missing_debug_implementations)]
 pub struct EasyPeekHack<'a, T>(&'a PhantomData<T>);
@@ -165,9 +161,14 @@ where
 {
     #[inline]
     fn parse(input: ParseStream) -> syn::Result<Self> {
-        let inner;
-        syn::parenthesized!(inner in input);
-        T::parse(&inner).map(EasyParenthesized)
+        let content;
+        syn::parenthesized!(content in input);
+        let inner = T::parse(&content)?;
+        if content.is_empty() {
+            Ok(EasyParenthesized(inner))
+        } else {
+            Err(content.error("Expected closing parentheses"))
+        }
     }
 }
 
@@ -214,9 +215,14 @@ where
 {
     #[inline]
     fn parse(input: ParseStream) -> syn::Result<Self> {
-        let inner;
-        syn::braced!(inner in input);
-        T::parse(&inner).map(EasyBraced)
+        let content;
+        syn::braced!(content in input);
+        let inner = T::parse(&content)?;
+        if content.is_empty() {
+            Ok(EasyBraced(inner))
+        } else {
+            Err(content.error("Expected closing parentheses"))
+        }
     }
 }
 
@@ -263,13 +269,19 @@ where
 {
     #[inline]
     fn parse(input: ParseStream) -> syn::Result<Self> {
-        let inner;
-        syn::bracketed!(inner in input);
-        T::parse(&inner).map(EasyBracketed)
+        let content;
+        syn::bracketed!(content in input);
+        let inner = T::parse(&content)?;
+        if content.is_empty() {
+            Ok(EasyBracketed(inner))
+        } else {
+            Err(content.error("Expected closing parentheses"))
+        }
     }
 }
 
-/// Similar to [`syn::punctuated::Punctuated`] that implements [`Parse`] and possibly [`EasyPeek`].
+/// Similar to [`syn::punctuated::Punctuated`] but implements [`Parse`] and optionally [`EasyPeek`].
+///
 /// Parses one or more occurrences of T separated by punctuation of type P, not accepting trailing punctuation.
 /// Parsing continues as long as punctuation P is present at the head of the stream. This method returns upon parsing a T and observing that it is not followed by a P, even if there are remaining tokens in the stream.
 #[derive(Clone, Debug)]
@@ -324,7 +336,8 @@ where
     }
 }
 
-/// Similar to [`syn::punctuated::Punctuated`] that implements [`Parse`].
+/// Similar to [`syn::punctuated::Punctuated`] but implements [`Parse`].
+///
 /// Parses zero or more occurrences of T separated by punctuation of type P, with optional trailing punctuation.
 /// Parsing continues until the end of this parse stream. The entire content of this parse stream must consist of T and P.
 #[derive(Clone, Debug)]
@@ -379,8 +392,9 @@ where
 }
 
 /// Similar to [`Option`] but implements [`Parse`] when `T` implements [`EasyPeek`]
-/// If stream doesn't start with as `T`, it is parsed without consuming any tokens and parse result is [`Nothing`].
-/// Otherwise `T` is parsed and wrapped in [`Just`]
+///
+/// If stream doesn't start as `T` then no tokens are consumed and [`Nothing`] is returned.
+/// Otherwise `T` is parsed and returned wrapped in [`Just`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum EasyMaybe<T> {
     /// Nothing at all
@@ -409,9 +423,9 @@ where
     }
 }
 
-/// Either value preceded by `=` or tuple sub-fields.
+/// Either a value preceded with `=` or parenthesized value.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum EasySubArgument<V, T> {
+pub enum EasySubArgument<V, T = V> {
     /// Simple value
     Value(V),
 
@@ -432,7 +446,13 @@ where
         } else if lookahead1.peek(Paren) {
             let content;
             syn::parenthesized!(content in stream);
-            Ok(EasySubArgument::Tuple(content.parse::<T>()?))
+            let arg = content.parse::<T>()?;
+
+            if content.is_empty() {
+                Ok(EasySubArgument::Tuple(arg))
+            } else {
+                Err(content.error("Expected closing parentheses"))
+            }
         } else {
             Err(lookahead1.error())
         }
@@ -453,17 +473,17 @@ where
     }
 }
 
-/// Defines structure or enum and implements [`Parse`] for it
+/// Defines structure or enum and implements [`Parse`] for it.
 ///
-/// Implements [`EasyPeek`] for structs if first field is prefixed with `@`. That field's type must implement [`EasyPeek`] itself.
+/// Implements [`EasyPeek`] for structs if first field implements [`EasyPeek`].
 ///
-/// For enums, if variant is prefixed by `!` it becomes a default variant that is parsed if other variants peeking fails.
-/// Variants prefixed with `?` are skipped during parsing and picking.
+/// For enums, if first variant is prefixed by `!` it becomes a default variant that is parsed if no other variants peeking succeeds.
+/// Variants prefixed with `?` are skipped during parsing and peeking.
 ///
 /// For enums [`EasyPeek`] is implemented if enum does not have a default variant.
-/// First field in enum non-default variants must implement [`EasyPeek`].
+/// First field in  all non-default non-skipped variants must implement [`EasyPeek`].
 ///
-/// Note that unit, empty tuple and struct-like variants may be present but must be marked as default or skipped.
+/// Therefore unit and empty tuple and struct-like variants may be present but must be marked as default or skipped.
 #[macro_export]
 macro_rules! easy_parse {
     (
@@ -669,7 +689,7 @@ macro_rules! easy_parse {
 #[doc(hidden)]
 #[macro_export]
 macro_rules! easy_parse_enum_variant {
-    // (parse $lookahead1:ident $stream:ident $name:ident ( $(#[$vpmeta:meta])* $vptype:ty $(, $(#[$vfmeta:meta])* $vftype:ty )* $(,)? )) => {};
+    (parse $lookahead1:ident $stream:ident $name:ident ( $(#[$vpmeta:meta])* $vptype:ty $(, $(#[$vfmeta:meta])* $vftype:ty )* $(,)? )) => {};
     (parse $lookahead1:ident $stream:ident $name:ident $vname:ident ( $(#[$vpmeta:meta])* $vptype:ty $(, $(#[$vfmeta:meta])* $vftype:ty )* $(,)? )) => {
         if <$vptype as $crate::EasyPeek>::peek(&$lookahead1) {
             return $crate::private::Result::Ok($name::$vname(
@@ -678,21 +698,21 @@ macro_rules! easy_parse_enum_variant {
             ));
         }
     };
-    // (peek $lookahead1:ident ( $(#[$vpmeta:meta])* $vptype:ty $(, $(#[$vfmeta:meta])* $vftype:ty )* $(,)? )) => {};
+    (peek $lookahead1:ident ( $(#[$vpmeta:meta])* $vptype:ty $(, $(#[$vfmeta:meta])* $vftype:ty )* $(,)? )) => {};
     (peek $lookahead1:ident $vname:ident ( $(#[$vpmeta:meta])* $vptype:ty $(, $(#[$vfmeta:meta])* $vftype:ty )* $(,)? )) => {
         if <$vptype as $crate::EasyPeek>::peek($lookahead1) {
             return true;
         }
     };
 
-    // (peek_stream $stream:ident ( $(#[$vpmeta:meta])* $vptype:ty $(, $(#[$vfmeta:meta])* $vftype:ty )* $(,)? )) => {};
+    (peek_stream $stream:ident ( $(#[$vpmeta:meta])* $vptype:ty $(, $(#[$vfmeta:meta])* $vftype:ty )* $(,)? )) => {};
     (peek_stream $stream:ident $vname:ident ( $(#[$vpmeta:meta])* $vptype:ty $(, $(#[$vfmeta:meta])* $vftype:ty )* $(,)? )) => {
         if <$vptype as $crate::EasyPeek>::peek_stream($stream) {
             return true;
         }
     };
 
-    // (parse $lookahead1:ident $stream:ident $name:ident { $(#[$vpmeta:meta])* $vpname:ident : $vptype:ty $(, $(#[$vfmeta:meta])* $vfname:ident : $vftype:ty )* $(,)? }) => {};
+    (parse $lookahead1:ident $stream:ident $name:ident { $(#[$vpmeta:meta])* $vpname:ident : $vptype:ty $(, $(#[$vfmeta:meta])* $vfname:ident : $vftype:ty )* $(,)? }) => {};
     (parse $lookahead1:ident $stream:ident $name:ident $vname:ident { $(#[$vpmeta:meta])* $vpname:ident : $vptype:ty $(, $(#[$vfmeta:meta])* $vfname:ident : $vftype:ty )* $(,)? }) => {
         if <$vptype as $crate::EasyPeek>::peek(&$lookahead1) {
             let $vpname =  <$vptype as $crate::private::Parse>::parse($stream)?;
@@ -704,13 +724,13 @@ macro_rules! easy_parse_enum_variant {
             })
         }
     };
-    // (peek $lookahead1:ident { $(#[$vpmeta:meta])* $vpname:ident : $vptype:ty $(, $(#[$vfmeta:meta])* $vfname:ident : $vftype:ty )* $(,)? }) => {};
+    (peek $lookahead1:ident { $(#[$vpmeta:meta])* $vpname:ident : $vptype:ty $(, $(#[$vfmeta:meta])* $vfname:ident : $vftype:ty )* $(,)? }) => {};
     (peek $lookahead1:ident $vname:ident { $(#[$vpmeta:meta])* $vpname:ident : $vptype:ty $(, $(#[$vfmeta:meta])* $vfname:ident : $vftype:ty )* $(,)? }) => {
         if <$vptype as $crate::EasyPeek>::peek($lookahead1) {
             return true;
         }
     };
-    // (peek_stream $stream:ident { $(#[$vpmeta:meta])* $vpname:ident : $vptype:ty $(, $(#[$vfmeta:meta])* $vfname:ident : $vftype:ty )* $(,)? }) => {};
+    (peek_stream $stream:ident { $(#[$vpmeta:meta])* $vpname:ident : $vptype:ty $(, $(#[$vfmeta:meta])* $vfname:ident : $vftype:ty )* $(,)? }) => {};
     (peek_stream $stream:ident $vname:ident { $(#[$vpmeta:meta])* $vpname:ident : $vptype:ty $(, $(#[$vfmeta:meta])* $vfname:ident : $vftype:ty )* $(,)? }) => {
         if <$vptype as $crate::EasyPeek>::peek_stream($stream) {
             return true;
@@ -728,8 +748,9 @@ macro_rules! easy_parse_enum_variant {
     };
 }
 
-/// Trait for parsable attributes.
-/// Attributes should be peekable to choose which attribute to parse.
+/// Trait for parsable arguments.
+/// Arguments have a token as a name that is used for peeking.
+/// Name of the argument can be displayed for user in some error cases.
 pub trait EasyArgument: EasyPeek {
     /// Returns attribute name for display purposes.
     fn name_display() -> &'static str;
@@ -752,10 +773,13 @@ where
 }
 
 /// Defines argument structure.
-/// First field is a argument name.
-/// It must be [`EasyToken`] implementation that will be used to for [`EasyPeek`] implementation.
-/// And following fields are parsed in order.
-/// In case of errors, argument name and span will be used.
+///
+/// First field is the argument name. It must implement [`EasyToken`].
+/// It must be used to for [`EasyPeek`] implementation.
+///
+/// The rest of the fields are parsed in order.
+///
+/// In case of errors, such as missing argument or unexpected duplicates, argument's name and span will be used.
 #[macro_export]
 macro_rules! easy_argument {
     (
@@ -813,11 +837,15 @@ macro_rules! easy_argument {
 }
 
 /// Defines argument structure.
-/// First field is a argument name.
-/// It must be [`EasyToken`] implementation that will be used to for [`EasyPeek`] implementation.
-/// Following fields must be [`EasyArgumentField`] and are expected to be in parenthesized and parsed in any order.
-/// If name is not followed by parentheses, all fields are missing.
-/// In case of errors, argument name and span will be used.
+///
+/// First field is the argument name. It must implement [`EasyToken`].
+/// It must be used to for [`EasyPeek`] implementation.
+///
+/// The rest of the fields must be [`EasyArgumentField`] and are expected to be in parenthesized and parsed in any order.
+///
+/// If name is not followed by parentheses, all fields are missing (which may be not an error for [`Option`] and [`Vec`] fields).
+///
+/// In case of errors, such as missing argument or unexpected duplicates, argument's name and span will be used.
 #[macro_export]
 macro_rules! easy_argument_tuple {
     (
@@ -909,12 +937,16 @@ macro_rules! easy_argument_tuple {
     };
 }
 
-/// Defines argument structure of two fields.
-/// First field is a argument name.
-/// It must be [`EasyToken`] implementation that will be used to for [`EasyPeek`] implementation.
-/// Second field must be [`EasyArgumentField`] and is expected to follow `=` token.
-/// If name is not followed by `=`, second field is missing.
-/// In case of errors, argument name and span will be used.
+/// Defines argument structure with exactly two fields.
+///
+/// First field is the argument name. It must implement [`EasyToken`].
+/// It must be used to for [`EasyPeek`] implementation.
+///
+/// Another field is a value. It is parsed preceded by `=` token or inside parentheses.
+///
+/// If name is not followed by `=` or parentheses, value field is missing (which may be not an error for [`Option`] and [`Vec`] field).
+///
+/// In case of errors, such as missing argument or unexpected duplicates, argument's name and span will be used.
 #[macro_export]
 macro_rules! easy_argument_value {
     (
@@ -944,13 +976,29 @@ macro_rules! easy_argument_value {
             fn parse(stream: $crate::private::ParseStream) -> $crate::private::Result<Self, $crate::private::Error> {
                 let $nname = stream.parse::<$ntype>()?;
 
-                let _ = stream.parse::<$crate::private::Eq>()?;
-                let $vname = <$vtype as $crate::private::Parse>::parse(stream)?;
-
-                $crate::private::Result::Ok($name {
-                    $nname,
-                    $vname,
-                })
+                let lookahead1 = stream.lookahead1();
+                if lookahead1.peek($crate::private::Eq) {
+                    let _ = stream.parse::<$crate::private::Eq>()?;
+                    let $vname = <$vtype as $crate::private::Parse>::parse(stream)?;
+                    $crate::private::Result::Ok($name {
+                        $nname,
+                        $vname,
+                    })
+                } else if lookahead1.peek($crate::private::Paren) {
+                    let content;
+                    $crate::private::parenthesized!(content in stream);
+                    let $vname = <$vtype as $crate::private::Parse>::parse(&content)?;
+                    if content.is_empty() {
+                        $crate::private::Result::Ok($name {
+                            $nname,
+                            $vname,
+                        })
+                    } else {
+                        $crate::private::Result::Err(content.error("Expected closing parentheses"))
+                    }
+                } else {
+                    $crate::private::Result::Err(lookahead1.error())
+                }
             }
         }
 
@@ -1464,15 +1512,19 @@ macro_rules! easy_flags {
 
                         let flag = content.parse::<$one>()?;
 
-                        $crate::private::Result::Ok($crate::private::Option::Some($many {
-                            start_span: $crate::private::Spanned::span(&one),
-                            end_span: $crate::private::Spanned::span(&flag),
-                            flags: {
-                                let mut flags = $crate::private::Punctuated::new();
-                                flags.push(flag);
-                                flags
-                            },
-                        }))
+                        if content.is_empty() {
+                            $crate::private::Result::Ok($crate::private::Option::Some($many {
+                                start_span: $crate::private::Spanned::span(&one),
+                                end_span: $crate::private::Spanned::span(&flag),
+                                flags: {
+                                    let mut flags = $crate::private::Punctuated::new();
+                                    flags.push(flag);
+                                    flags
+                                },
+                            }))
+                        } else {
+                            $crate::private::Result::Err(content.error("Expected closing parentheses"))
+                        }
                     } else if lookahead1.peek($manykw) {
                         let many = stream.parse::<$manykw>()?;
 
@@ -1511,10 +1563,14 @@ macro_rules! easy_flags {
                         $crate::private::parenthesized!(content in stream);
 
                         let flag = content.parse::<$one>()?;
-                        self.end_span = $crate::private::Spanned::span(&flag);
-                        self.flags.push(flag);
 
-                        $crate::private::Result::Ok(true)
+                        if content.is_empty() {
+                            self.end_span = $crate::private::Spanned::span(&flag);
+                            self.flags.push(flag);
+                            $crate::private::Result::Ok(true)
+                        } else {
+                            $crate::private::Result::Err(content.error("Expected closing parentheses"))
+                        }
                     } else if lookahead1.peek($manykw) {
                         let many = stream.parse::<$manykw>()?;
 
@@ -1695,7 +1751,7 @@ macro_rules! easy_separated {
 }
 
 /// Collection of attributes that can be parsed from array of attributes.
-/// Can be easily applied to field's or type's attributes vector.
+/// Can be easily applied to attributes vector parsed by [`syn`].
 pub trait EasyAttributes {
     /// Parse attributes array.
     fn parse(attrs: &[syn::Attribute], span: Span) -> syn::Result<Self>
@@ -1704,7 +1760,9 @@ pub trait EasyAttributes {
 }
 
 /// Defines struct and implement [`EasyAttributes`] for it.
+///
 /// Each field's type must implement [`EasyArgumentField`].
+/// Fields are parsed in any order.
 #[macro_export]
 macro_rules! easy_attributes {
     (
