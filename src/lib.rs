@@ -1367,8 +1367,12 @@ impl<T> EasyArgumentField for Option<T>
 where
     T: EasyArgumentField,
 {
-    fn try_parse(lookahead1: &Lookahead1, stream: ParseStream) -> syn::Result<Option<Self>> {
-        <T as EasyArgumentField>::try_parse(lookahead1, stream).map(Some)
+    fn try_parse(lookahead1: &Lookahead1, stream: ParseStream) -> syn::Result<Option<Option<T>>> {
+        match <T as EasyArgumentField>::try_parse(lookahead1, stream) {
+            Err(err) => Err(err),
+            Ok(Some(t)) => Ok(Some(Some(t))),
+            Ok(None) => Ok(None),
+        }
     }
 
     fn try_extend(&mut self, lookahead1: &Lookahead1, stream: ParseStream) -> syn::Result<bool> {
@@ -1964,7 +1968,7 @@ pub mod examples {
 mod tests {
     use proc_macro2::Span;
 
-    use crate::EasyAttributes;
+    use crate::*;
 
     #[allow(warnings)]
     enum Option {}
@@ -2116,5 +2120,60 @@ mod tests {
             std::option::Option::Some(bar) => assert_eq!(bar.ident, "b"),
             std::option::Option::None => panic!(),
         }
+    }
+
+    #[test]
+    fn test_argument_tuple() {
+        mod kw {
+            easy_token!(clear);
+            easy_token!(load);
+            easy_token!(store);
+            easy_token!(attachment);
+        }
+
+        easy_argument_value! {
+            pub struct Clear(pub kw::clear, pub ReferenceExpr);
+        }
+
+        easy_argument_value! {
+            pub struct Load(pub kw::load, pub ReferenceExpr);
+        }
+
+        easy_argument_group! {
+            pub enum LoadOp {
+                Clear(Clear),
+                Load(Load),
+            }
+        }
+
+        easy_argument_value! {
+            pub struct Store(pub kw::store, pub ReferenceExpr);
+        }
+
+        easy_argument_group! {
+            pub enum StoreOp {
+                Store(Store),
+            }
+        }
+
+        easy_argument_tuple! {
+            struct AttachmentAttribute {
+                attachment: kw::attachment,
+                load_op: core::option::Option<LoadOp>,
+                store_op: core::option::Option<StoreOp>,
+            }
+        }
+
+        easy_attributes! {
+            @(sierra)
+            struct FieldAttributes {
+                attachment: core::option::Option<AttachmentAttribute>,
+            }
+        }
+
+        let tokens = quote::quote!(#[sierra(attachment(store = const Layout::Present, clear = const ClearColor(0.02, 0.03, 0.03, 1.0)))]);
+        let attrs = syn::parse::Parser::parse2(syn::Attribute::parse_outer, tokens).unwrap();
+
+        FieldAttributes::parse(&attrs, Span::call_site()).unwrap();
     }
 }
