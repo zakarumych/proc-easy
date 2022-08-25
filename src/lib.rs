@@ -58,7 +58,7 @@ pub mod private {
         punctuated::Punctuated,
         spanned::Spanned,
         token::{Comma, Eq, Paren},
-        Attribute, Error,
+        Attribute, Error, Ident,
     };
 }
 
@@ -81,6 +81,15 @@ pub trait EasyToken: EasyPeek + Parse + Spanned {
 /// Defines a type with specified name that implement [`EasyToken`] and can be parsed from that name ident.
 #[macro_export]
 macro_rules! easy_token {
+    (use $name:ty) => {
+        impl $crate::EasyToken for $name {
+            #[inline]
+            fn display() -> &'static str {
+                $crate::private::concat!("`", $crate::private::stringify!($name), "`")
+            }
+        }
+    };
+
     ($name:ident) => {
         $crate::private::custom_keyword!($name);
 
@@ -1786,6 +1795,11 @@ pub trait EasyAttributes {
     fn parse(attrs: &[Attribute], span: Span) -> syn::Result<Self>
     where
         Self: Sized;
+
+    /// Parse attributes array within specifeid namespace.
+    fn parse_in(namespace: &syn::Ident, attrs: &[Attribute], span: Span) -> syn::Result<Self>
+    where
+        Self: Sized;
 }
 
 /// Defines struct and implement [`EasyAttributes`] for it.
@@ -1809,10 +1823,14 @@ macro_rules! easy_attributes {
 
         impl $crate::EasyAttributes for $name {
             fn parse(attrs: &[$crate::private::Attribute], span: $crate::private::Span) -> $crate::private::Result<Self, $crate::private::Error> {
+                Self::parse_in(&$crate::private::Ident::new($crate::private::stringify!($namespace), $crate::private::Span::call_site()), attrs, span)
+            }
+
+            fn parse_in(namespace: &$crate::private::Ident, attrs: &[$crate::private::Attribute], span: $crate::private::Span) -> $crate::private::Result<Self, $crate::private::Error> {
                 $(let mut $fname = $crate::private::Option::None;)*
 
                 for attr in attrs {
-                    if attr.path.is_ident(::core::stringify!($namespace)) {
+                    if attr.path.is_ident(namespace) {
                         attr.parse_args_with(|stream: $crate::private::ParseStream| {
                             loop {
                                 if stream.is_empty() {
@@ -2165,15 +2183,19 @@ mod tests {
         }
 
         easy_attributes! {
-            @(sierra)
+            @(test_namespace)
             struct FieldAttributes {
                 attachment: core::option::Option<AttachmentAttribute>,
             }
         }
 
-        let tokens = quote::quote!(#[sierra(attachment(store = const Layout::Present, clear = const ClearColor(0.02, 0.03, 0.03, 1.0)))]);
+        let tokens = quote::quote!(#[test_namespace(attachment(store = const Layout::Present, clear = const ClearColor(0.02, 0.03, 0.03, 1.0)))]);
         let attrs = syn::parse::Parser::parse2(syn::Attribute::parse_outer, tokens).unwrap();
 
-        FieldAttributes::parse(&attrs, Span::call_site()).unwrap();
+        let attributes = FieldAttributes::parse(&attrs, Span::call_site()).unwrap();
+        let attachment_attribute = attributes.attachment.unwrap();
+
+        drop(attachment_attribute.load_op);
+        drop(attachment_attribute.store_op);
     }
 }
