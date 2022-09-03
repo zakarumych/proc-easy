@@ -81,15 +81,6 @@ pub trait EasyToken: EasyPeek + Parse + Spanned {
 /// Defines a type with specified name that implement [`EasyToken`] and can be parsed from that name ident.
 #[macro_export]
 macro_rules! easy_token {
-    (use $name:ty) => {
-        impl $crate::EasyToken for $name {
-            #[inline]
-            fn display() -> &'static str {
-                $crate::private::concat!("`", $crate::private::stringify!($name), "`")
-            }
-        }
-    };
-
     ($name:ident) => {
         $crate::private::custom_keyword!($name);
 
@@ -127,6 +118,117 @@ where
         stream.peek(|v| -> T { match v {} })
     }
 }
+
+macro_rules! easy_syn_token {
+    ($token:tt) => {
+        impl EasyToken for syn::Token![$token] {
+            #[inline]
+            fn display() -> &'static str {
+                $crate::private::concat!("`", $crate::private::stringify!($token), "`")
+            }
+        }
+    };
+}
+
+easy_syn_token![abstract];
+easy_syn_token![as];
+easy_syn_token![async];
+easy_syn_token![auto];
+easy_syn_token![await];
+easy_syn_token![become];
+easy_syn_token![box];
+easy_syn_token![break];
+easy_syn_token![const];
+easy_syn_token![continue];
+easy_syn_token![crate];
+easy_syn_token![default];
+easy_syn_token![do];
+easy_syn_token![dyn];
+easy_syn_token![else];
+easy_syn_token![enum];
+easy_syn_token![extern];
+easy_syn_token![final];
+easy_syn_token![fn];
+easy_syn_token![for];
+easy_syn_token![if];
+easy_syn_token![impl];
+easy_syn_token![in];
+easy_syn_token![let];
+easy_syn_token![loop];
+easy_syn_token![macro];
+easy_syn_token![match];
+easy_syn_token![mod];
+easy_syn_token![move];
+easy_syn_token![mut];
+easy_syn_token![override];
+easy_syn_token![priv];
+easy_syn_token![pub];
+easy_syn_token![ref];
+easy_syn_token![return];
+easy_syn_token![Self];
+easy_syn_token![self];
+easy_syn_token![static];
+easy_syn_token![struct];
+easy_syn_token![super];
+easy_syn_token![trait];
+easy_syn_token![try];
+easy_syn_token![type];
+easy_syn_token![typeof];
+easy_syn_token![union];
+easy_syn_token![unsafe];
+easy_syn_token![unsized];
+easy_syn_token![use];
+easy_syn_token![virtual];
+easy_syn_token![where];
+easy_syn_token![while];
+easy_syn_token![yield];
+easy_syn_token![+];
+easy_syn_token![+=];
+easy_syn_token![&];
+easy_syn_token![&&];
+easy_syn_token![&=];
+easy_syn_token![@];
+easy_syn_token![!];
+easy_syn_token![^];
+easy_syn_token![^=];
+easy_syn_token![:];
+easy_syn_token![::];
+easy_syn_token![,];
+easy_syn_token![/];
+easy_syn_token![/=];
+easy_syn_token![$];
+easy_syn_token![.];
+easy_syn_token![..];
+easy_syn_token![...];
+easy_syn_token![..=];
+easy_syn_token![=];
+easy_syn_token![==];
+easy_syn_token![>=];
+easy_syn_token![>];
+easy_syn_token![<=];
+easy_syn_token![<];
+easy_syn_token![*=];
+easy_syn_token![!=];
+easy_syn_token![|];
+easy_syn_token![|=];
+easy_syn_token![||];
+easy_syn_token![#];
+easy_syn_token![?];
+easy_syn_token![->];
+easy_syn_token![<-];
+easy_syn_token![%];
+easy_syn_token![%=];
+easy_syn_token![=>];
+easy_syn_token![;];
+easy_syn_token![<<];
+easy_syn_token![<<=];
+easy_syn_token![>>];
+easy_syn_token![>>=];
+easy_syn_token![*];
+easy_syn_token![-];
+easy_syn_token![-=];
+easy_syn_token![~];
+easy_syn_token![_];
 
 /// HACK around trivial bounds error.
 #[doc(hidden)]
