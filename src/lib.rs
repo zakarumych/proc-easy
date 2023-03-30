@@ -36,6 +36,7 @@ use std::{marker::PhantomData, ops::Deref};
 
 use proc_macro2::Span;
 
+use quote::ToTokens;
 use syn::{
     parse::{Lookahead1, Parse, ParseStream},
     spanned::Spanned,
@@ -52,13 +53,14 @@ pub mod private {
 
     pub use bool;
     pub use proc_macro2::Span;
+    pub use quote::ToTokens;
     pub use syn::{
         custom_keyword, parenthesized,
         parse::{Lookahead1, Parse, ParseStream},
         punctuated::Punctuated,
         spanned::Spanned,
         token::{Comma, Eq, Paren},
-        Attribute, Error, Ident,
+        Attribute, Error, Ident, Token,
     };
 }
 
@@ -267,12 +269,23 @@ impl<T> Deref for EasyParenthesized<T> {
     }
 }
 
-impl<T> Spanned for EasyParenthesized<T>
+impl<T> ToTokens for EasyParenthesized<T>
 where
-    T: Spanned,
+    T: ToTokens,
 {
-    fn span(&self) -> Span {
-        self.0.span()
+    #[inline]
+    fn to_tokens(&self, tokens: &mut proc_macro2::TokenStream) {
+        self.0.to_tokens(tokens)
+    }
+
+    #[inline]
+    fn to_token_stream(&self) -> proc_macro2::TokenStream {
+        self.0.to_token_stream()
+    }
+
+    #[inline]
+    fn into_token_stream(self) -> proc_macro2::TokenStream {
+        self.0.into_token_stream()
     }
 }
 
@@ -321,12 +334,23 @@ impl<T> Deref for EasyBraced<T> {
     }
 }
 
-impl<T> Spanned for EasyBraced<T>
+impl<T> ToTokens for EasyBraced<T>
 where
-    T: Spanned,
+    T: ToTokens,
 {
-    fn span(&self) -> Span {
-        self.0.span()
+    #[inline]
+    fn to_tokens(&self, tokens: &mut proc_macro2::TokenStream) {
+        self.0.to_tokens(tokens)
+    }
+
+    #[inline]
+    fn to_token_stream(&self) -> proc_macro2::TokenStream {
+        self.0.to_token_stream()
+    }
+
+    #[inline]
+    fn into_token_stream(self) -> proc_macro2::TokenStream {
+        self.0.into_token_stream()
     }
 }
 
@@ -375,12 +399,23 @@ impl<T> Deref for EasyBracketed<T> {
     }
 }
 
-impl<T> Spanned for EasyBracketed<T>
+impl<T> ToTokens for EasyBracketed<T>
 where
-    T: Spanned,
+    T: ToTokens,
 {
-    fn span(&self) -> Span {
-        self.0.span()
+    #[inline]
+    fn to_tokens(&self, tokens: &mut proc_macro2::TokenStream) {
+        self.0.to_tokens(tokens)
+    }
+
+    #[inline]
+    fn to_token_stream(&self) -> proc_macro2::TokenStream {
+        self.0.to_token_stream()
+    }
+
+    #[inline]
+    fn into_token_stream(self) -> proc_macro2::TokenStream {
+        self.0.into_token_stream()
     }
 }
 
@@ -1550,17 +1585,32 @@ macro_rules! easy_flags {
             #[allow(dead_code)]
             $ovis fn try_parse_terminated<T: $crate::private::Parse>(lookahead1: &$crate::private::Lookahead1, stream: $crate::private::ParseStream) -> $crate::private::Result<$crate::private::Option<$crate::private::Punctuated<Self, $crate::private::Comma>>, $crate::private::Error> {
                 if $( lookahead1.peek($flagkw) || )* false {
-                    stream.parse_terminated::<Self, $crate::private::Comma>($crate::private::Parse::parse).map($crate::private::Option::Some)
+                    stream.parse_terminated::<Self, _>($crate::private::Parse::parse, $crate::private::Token![,]).map($crate::private::Option::Some)
                 } else {
                     $crate::private::Result::Ok($crate::private::Option::None)
                 }
             }
         }
 
-        impl $crate::private::Spanned for $one {
-            fn span(&self) -> $crate::private::Span {
+        impl $crate::private::ToTokens for $one {
+            #[inline]
+            fn to_tokens(&self, tokens: &mut proc_macro2::TokenStream) {
                 match *self {
-                    $( $one::$flag (ref flag) => $crate::private::Spanned::span(flag), )*
+                    $( $one::$flag (ref flag) => $crate::private::ToTokens::to_tokens(flag, tokens), )*
+                }
+            }
+
+            #[inline]
+            fn to_token_stream(&self) -> proc_macro2::TokenStream {
+                match *self {
+                    $( $one::$flag (ref flag) => $crate::private::ToTokens::to_token_stream(flag), )*
+                }
+            }
+
+            #[inline]
+            fn into_token_stream(self) -> proc_macro2::TokenStream {
+                match self {
+                    $( $one::$flag (flag) => $crate::private::ToTokens::into_token_stream(flag), )*
                 }
             }
         }
@@ -1610,17 +1660,13 @@ macro_rules! easy_flags {
             #[derive(Clone, Debug)]
             #[allow(dead_code)]
             $mvis struct $many {
-                pub start_span: $crate::private::Span,
-                pub end_span: $crate::private::Span,
                 pub flags: $crate::private::Punctuated<$one, $crate::private::Comma>,
             }
 
             impl $many {
                 #[allow(dead_code)]
-                pub fn new(span: $crate::private::Span) -> Self {
+                pub fn new() -> Self {
                     $many {
-                        start_span: span,
-                        end_span: span,
                         flags: $crate::private::Punctuated::new(),
                     }
                 }
@@ -1629,23 +1675,32 @@ macro_rules! easy_flags {
             impl $crate::private::Default for $many {
                 fn default() -> Self {
                     $many {
-                        start_span: $crate::private::Span::call_site(),
-                        end_span: $crate::private::Span::call_site(),
                         flags: $crate::private::Punctuated::default(),
                     }
                 }
             }
 
-            impl $crate::private::Spanned for $many {
-                fn span(&self) -> $crate::private::Span {
-                    self.start_span.join(self.end_span).unwrap_or(self.start_span)
+            impl $crate::private::ToTokens for $many {
+                #[inline]
+                fn to_tokens(&self, tokens: &mut proc_macro2::TokenStream) {
+                    self.flags.to_tokens(tokens)
+                }
+
+                #[inline]
+                fn to_token_stream(&self) -> proc_macro2::TokenStream {
+                    self.flags.to_token_stream()
+                }
+
+                #[inline]
+                fn into_token_stream(self) -> proc_macro2::TokenStream {
+                    self.flags.into_token_stream()
                 }
             }
 
             impl $crate::EasyArgumentField for $many {
                 fn try_parse(lookahead1: &$crate::private::Lookahead1, stream: $crate::private::ParseStream) -> $crate::private::Result<$crate::private::Option<Self>, $crate::private::Error> {
                     if lookahead1.peek($onekw) {
-                        let one = stream.parse::<$onekw>()?;
+                        let _ = stream.parse::<$onekw>()?;
 
                         let content;
                         $crate::private::parenthesized!(content in stream);
@@ -1654,8 +1709,6 @@ macro_rules! easy_flags {
 
                         if content.is_empty() {
                             $crate::private::Result::Ok($crate::private::Option::Some($many {
-                                start_span: $crate::private::Spanned::span(&one),
-                                end_span: $crate::private::Spanned::span(&flag),
                                 flags: {
                                     let mut flags = $crate::private::Punctuated::new();
                                     flags.push(flag);
@@ -1666,28 +1719,20 @@ macro_rules! easy_flags {
                             $crate::private::Result::Err(content.error("Expected closing parentheses"))
                         }
                     } else if lookahead1.peek($manykw) {
-                        let many = stream.parse::<$manykw>()?;
+                        let _ = stream.parse::<$manykw>()?;
 
                         let content;
                         $crate::private::parenthesized!(content in stream);
-                        let flags = content.parse_terminated(<$one as $crate::private::Parse>::parse)?;
-
-                        let end_span = flags.last().map($crate::private::Spanned::span).unwrap_or($crate::private::Spanned::span(&many));
+                        let flags = content.parse_terminated(<$one as $crate::private::Parse>::parse, $crate::private::Token![,])?;
 
                         $crate::private::Result::Ok($crate::private::Option::Some($many {
-                            start_span: $crate::private::Spanned::span(&many),
-                            end_span,
                             flags,
                         }))
                     } else {
                         match $one::try_parse_terminated::<$crate::private::Comma>(lookahead1, stream)? {
                             $crate::private::Option::None => $crate::private::Result::Ok($crate::private::Option::None),
                             $crate::private::Option::Some(flags) => {
-                                let flag = flags.last().unwrap();
-                                let span = $crate::private::Spanned::span(flag);
                                 $crate::private::Result::Ok($crate::private::Option::Some($many {
-                                    start_span: span,
-                                    end_span: span,
                                     flags,
                                 }))
                             }
@@ -1705,21 +1750,18 @@ macro_rules! easy_flags {
                         let flag = content.parse::<$one>()?;
 
                         if content.is_empty() {
-                            self.end_span = $crate::private::Spanned::span(&flag);
                             self.flags.push(flag);
                             $crate::private::Result::Ok(true)
                         } else {
                             $crate::private::Result::Err(content.error("Expected closing parentheses"))
                         }
                     } else if lookahead1.peek($manykw) {
-                        let many = stream.parse::<$manykw>()?;
+                        let _ = stream.parse::<$manykw>()?;
 
                         let content;
                         $crate::private::parenthesized!(content in stream);
 
-                        let flags = content.parse_terminated::<_, $crate::private::Comma>(<$one as $crate::private::Parse>::parse)?;
-
-                        self.end_span = flags.last().map($crate::private::Spanned::span).unwrap_or($crate::private::Spanned::span(&many));
+                        let flags = content.parse_terminated::<_, _>(<$one as $crate::private::Parse>::parse, $crate::private::Token![,])?;
                         self.flags.extend(flags);
 
                         $crate::private::Result::Ok(true)
@@ -1727,9 +1769,6 @@ macro_rules! easy_flags {
                         match $one::try_parse_terminated::<$crate::private::Comma>(lookahead1, stream)? {
                             $crate::private::Option::None => $crate::private::Result::Ok(false),
                             $crate::private::Option::Some(flags) => {
-                                let flag = flags.last().unwrap();
-                                self.end_span = $crate::private::Spanned::span(flag);
-
                                 self.flags.extend(flags);
                                 $crate::private::Result::Ok(true)
                             }
@@ -1932,7 +1971,7 @@ macro_rules! easy_attributes {
                 $(let mut $fname = $crate::private::Option::None;)*
 
                 for attr in attrs {
-                    if attr.path.is_ident(namespace) {
+                    if attr.path().is_ident(namespace) {
                         attr.parse_args_with(|stream: $crate::private::ParseStream| {
                             loop {
                                 if stream.is_empty() {

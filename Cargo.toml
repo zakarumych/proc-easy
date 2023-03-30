@@ -1,6 +1,6 @@
 [package]
 name = "proc-easy"
-version = "0.2.3"
+version = "0.3.0"
 edition = "2021"
 authors = ["Zakarum <zakarumych@ya.ru>"]
 license = "MIT OR Apache-2.0"
@@ -14,7 +14,5 @@ categories = ["rust-patterns"]
 
 [dependencies]
 proc-macro2 = { version = "1" }
-syn = { version = "1", features = ["extra-traits"] }
-
-[dev-dependencies]
+syn = { version = "2", features = ["extra-traits"] }
 quote = "1"
