@@ -235,7 +235,7 @@ easy_syn_token![_];
 /// HACK around trivial bounds error.
 #[doc(hidden)]
 #[allow(missing_debug_implementations)]
-pub struct EasyPeekHack<'a, T>(&'a PhantomData<T>);
+pub struct EasyPeekHack<'a, T>(#[allow(unused)] &'a PhantomData<T>);
 
 impl<'a, T> Parse for EasyPeekHack<'a, T> {
     fn parse(_: ParseStream) -> syn::Result<Self> {
@@ -1802,7 +1802,7 @@ macro_rules! easy_flags {
 #[macro_export]
 macro_rules! easy_terminated {
     (
-        @($punct:ident)
+        @($punct:ty)
         $(#[$meta:meta])*
         $vis:vis struct $name:ident {
             $($(#[$fmeta:meta])* $fvis:vis $fname:ident : $ftype:ty),*
@@ -1815,8 +1815,8 @@ macro_rules! easy_terminated {
         }
 
         impl $crate::private::Parse for $name {
-            fn parse(stream: $crate::private::ParseStream) -> $crate::private::Result<Self> {
-                $(let $fname = $crate::private::None;)*
+            fn parse(stream: $crate::private::ParseStream) -> $crate::private::Result<Self, $crate::private::Error> {
+                $(let mut $fname = $crate::private::Option::None;)*
 
                 loop {
                     if stream.is_empty() {
@@ -1869,7 +1869,7 @@ macro_rules! easy_terminated {
 #[macro_export]
 macro_rules! easy_separated {
     (
-        @($punct:ident)
+        @($punct:ty)
         $(#[$meta:meta])*
         $vis:vis struct $name:ident {
             $($(#[$fmeta:meta])* $fvis:vis $fname:ident : $ftype:ty),*
@@ -1882,8 +1882,8 @@ macro_rules! easy_separated {
         }
 
         impl $crate::private::Parse for $name {
-            fn parse(stream: $crate::private::ParseStream) -> $crate::private::Result<Self> {
-                $(let $fname = $crate::private::None;)*
+            fn parse(stream: $crate::private::ParseStream) -> $crate::private::Result<Self, $crate::private::Error> {
+                $(let mut $fname = $crate::private::Option::None;)*
 
                 loop {
                     if stream.is_empty() {
@@ -1895,7 +1895,7 @@ macro_rules! easy_separated {
                             $crate::private::Option::None => {
                                 if let $crate::private::Option::Some(value) = <$ftype as $crate::EasyArgumentField>::try_parse(&lookahead1, stream)? {
                                     $fname = $crate::private::Option::Some(value);
-                                    if !<$punct as $crate::private::EasyPeek>::peek_stream(stream) {
+                                    if !<$punct as $crate::EasyPeek>::peek_stream(stream) {
                                         break;
                                     }
                                     stream.parse::<$punct>()?;
@@ -1904,7 +1904,7 @@ macro_rules! easy_separated {
                             }
                             $crate::private::Option::Some($fname) => {
                                 if <$ftype as $crate::EasyArgumentField>::try_extend($fname, &lookahead1, stream)? {
-                                    if !<$punct as $crate::private::EasyPeek>::peek_stream(stream) {
+                                    if !<$punct as $crate::EasyPeek>::peek_stream(stream) {
                                         break;
                                     }
                                     stream.parse::<$punct>()?;
@@ -2126,6 +2126,7 @@ pub mod examples {
 #[cfg(test)]
 mod tests {
     use proc_macro2::Span;
+    use syn::parse_quote;
 
     use crate::*;
 
@@ -2338,5 +2339,85 @@ mod tests {
 
         drop(attachment_attribute.load_op);
         drop(attachment_attribute.store_op);
+    }
+
+    #[test]
+    fn test_separated() {
+        easy_argument_value! {
+            pub struct Fn {
+                pub name: syn::Token![fn],
+                pub ident: syn::Ident,
+            }
+        }
+
+        easy_argument_value! {
+            pub struct Impl {
+                pub name: syn::Token![impl],
+                pub ident: syn::Ident,
+            }
+        }
+
+        easy_separated! {
+            @(syn::Token![,])
+            /// Docs
+            pub struct Foo {
+                /// Docs
+                pub fns: std::vec::Vec<Fn>,
+                /// Docs
+                pub impls: std::vec::Vec<Impl>,
+            }
+        }
+
+        let foo: Foo = parse_quote! { fn = a, impl(b), fn = c, fn(d), impl = e };
+
+        assert_eq!(foo.fns.len(), 3);
+        assert_eq!(foo.impls.len(), 2);
+
+        assert_eq!(foo.fns[0].ident, "a");
+        assert_eq!(foo.fns[1].ident, "c");
+        assert_eq!(foo.fns[2].ident, "d");
+
+        assert_eq!(foo.impls[0].ident, "b");
+        assert_eq!(foo.impls[1].ident, "e");
+    }
+
+    #[test]
+    fn test_terminated() {
+        easy_argument_value! {
+            pub struct Fn {
+                pub name: syn::Token![fn],
+                pub ident: syn::Ident,
+            }
+        }
+
+        easy_argument_value! {
+            pub struct Impl {
+                pub name: syn::Token![impl],
+                pub ident: syn::Ident,
+            }
+        }
+
+        easy_terminated! {
+            @(syn::Token![,])
+            /// Docs
+            pub struct Foo {
+                /// Docs
+                pub fns: std::vec::Vec<Fn>,
+                /// Docs
+                pub impls: std::vec::Vec<Impl>,
+            }
+        }
+
+        let foo: Foo = parse_quote! { fn = a, impl(b), fn = c, fn(d), impl = e, };
+
+        assert_eq!(foo.fns.len(), 3);
+        assert_eq!(foo.impls.len(), 2);
+
+        assert_eq!(foo.fns[0].ident, "a");
+        assert_eq!(foo.fns[1].ident, "c");
+        assert_eq!(foo.fns[2].ident, "d");
+
+        assert_eq!(foo.impls[0].ident, "b");
+        assert_eq!(foo.impls[1].ident, "e");
     }
 }
